@@ -180,6 +180,7 @@ def main() -> None:
             if valve_result and valve_result.get("found") and valve_result.get("crop") is not None:
                 valve_words = valve_result["crop"].extract_words() or []
                 valve_records = parse_section(valve_words, "valve", valve_result.get("bbox"))
+                valve_records = [record for record in valve_records if str(record.get("left", "")).strip()]
                 all_section_records.extend(valve_records)
 
             print("\n--- VALVE RECORDS ---\n")
