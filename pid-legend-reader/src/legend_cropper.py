@@ -57,17 +57,119 @@ def find_fixture_symbols_anchor(words):
     return None
 
 
-def find_fixture_section_words(words, anchor, page_width, page_height):
-    """Find words in a tight local window around the Fixture Symbols heading anchor."""
+def _segment_length(segment: dict) -> float:
+    if segment.get("orientation") == "vertical":
+        return float(segment.get("bottom", 0.0)) - float(segment.get("top", 0.0))
+    return float(segment.get("x1", 0.0)) - float(segment.get("x0", 0.0))
+
+
+def _spans_anchor_band_vertical(segment: dict, anchor_top: float, anchor_bottom: float) -> bool:
+    seg_top = float(segment.get("top", 0.0))
+    seg_bottom = float(segment.get("bottom", 0.0))
+    return seg_top <= anchor_top + 2.0 and seg_bottom >= anchor_bottom - 2.0
+
+
+def filter_words_between_xbounds(words, x0, x1, top=None, bottom=None):
+    """Keep words that fit inside table x-bounds and optional y-bounds."""
+    return filter_words_in_region(words, x0=x0, x1=x1, top=top, bottom=bottom)
+
+
+def find_nearby_table_lines(anchor, line_segments, page_width, page_height):
+    """Find nearby table border candidates around the Fixture Symbols heading."""
+    anchor_x0 = float(anchor["x0"])
+    anchor_x1 = float(anchor["x1"])
+    anchor_top = float(anchor["top"])
+    anchor_bottom = float(anchor["bottom"])
+
+    local_x0 = max(0.0, anchor_x0 - 350.0)
+    local_x1 = min(float(page_width), anchor_x1 + 450.0)
+    local_top = max(0.0, anchor_top - 120.0)
+    local_bottom = min(float(page_height), anchor_bottom + 900.0)
+
+    local_segments = []
+    for seg in line_segments:
+        sx0 = float(seg.get("x0", 0.0))
+        sx1 = float(seg.get("x1", 0.0))
+        stop = float(seg.get("top", 0.0))
+        sbottom = float(seg.get("bottom", 0.0))
+
+        overlaps_local = not (
+            sx1 < local_x0 or sx0 > local_x1 or sbottom < local_top or stop > local_bottom
+        )
+        if overlaps_local:
+            local_segments.append(seg)
+
+    verticals = [
+        seg
+        for seg in local_segments
+        if seg.get("orientation") == "vertical" and _segment_length(seg) >= 30.0
+    ]
+    horizontals = [
+        seg
+        for seg in local_segments
+        if seg.get("orientation") == "horizontal" and _segment_length(seg) >= 40.0
+    ]
+
+    verticals_near_anchor_band = [
+        seg
+        for seg in verticals
+        if _spans_anchor_band_vertical(seg, anchor_top - 6.0, anchor_bottom + 6.0)
+    ]
+    vertical_pool = verticals_near_anchor_band or verticals
+
+    left_candidates = [
+        seg
+        for seg in vertical_pool
+        if float(seg.get("x0", 0.0)) <= anchor_x0 - 2.0
+    ]
+    right_candidates = [
+        seg
+        for seg in vertical_pool
+        if float(seg.get("x0", 0.0)) >= anchor_x1 + 2.0
+    ]
+
+    left_border = max(left_candidates, key=lambda seg: float(seg.get("x0", 0.0)), default=None)
+    right_border = min(right_candidates, key=lambda seg: float(seg.get("x0", 0.0)), default=None)
+
+    top_candidates = [
+        seg
+        for seg in horizontals
+        if float(seg.get("top", 0.0)) <= anchor_top + 2.0
+        and float(seg.get("x0", 0.0)) <= anchor_x0 + 15.0
+        and float(seg.get("x1", 0.0)) >= anchor_x1 - 15.0
+    ]
+
+    top_border = max(top_candidates, key=lambda seg: float(seg.get("top", 0.0)), default=None)
+
+    return {
+        "local_window": {
+            "x0": local_x0,
+            "x1": local_x1,
+            "top": local_top,
+            "bottom": local_bottom,
+        },
+        "nearby_segments": local_segments,
+        "left_border": left_border,
+        "right_border": right_border,
+        "top_border": top_border,
+    }
+
+
+def find_fixture_section_words(words, anchor, page_width, page_height, x0=None, x1=None):
+    """Find fixture words for bottom estimation, constrained to detected table width."""
     if anchor is None:
         return []
 
-    search_x0 = max(0.0, float(anchor["x0"]) - 450.0)
-    search_x1 = min(float(page_width), float(anchor["x1"]) + 550.0)
-    search_top = max(0.0, float(anchor["top"]) - 40.0)
-    search_bottom = min(float(page_height), float(anchor["bottom"]) + 700.0)
+    search_x0 = max(0.0, float(anchor["x0"]) - 450.0) if x0 is None else max(0.0, float(x0))
+    search_x1 = (
+        min(float(page_width), float(anchor["x1"]) + 550.0)
+        if x1 is None
+        else min(float(page_width), float(x1))
+    )
+    search_top = max(0.0, float(anchor["top"]) - 10.0)
+    search_bottom = min(float(page_height), float(anchor["bottom"]) + 900.0)
 
-    return filter_words_in_region(
+    return filter_words_between_xbounds(
         words,
         x0=search_x0,
         x1=search_x1,
@@ -76,70 +178,67 @@ def find_fixture_section_words(words, anchor, page_width, page_height):
     )
 
 
-def filter_out_heading_words(section_words, anchor):
-    """Remove words that overlap the heading area to avoid double-counting heading text."""
-    if not section_words or anchor is None:
-        return section_words
+def build_fixture_symbols_bbox_from_lines(anchor, line_segments, words, page_width, page_height):
+    """Build Fixture Symbols section bbox using nearby table lines + local words for bottom."""
+    nearby = find_nearby_table_lines(anchor, line_segments, page_width, page_height)
 
-    heading_top = float(anchor["top"]) - 2.0
-    heading_bottom = float(anchor["bottom"]) + 2.0
+    left_border = nearby.get("left_border")
+    right_border = nearby.get("right_border")
+    top_border = nearby.get("top_border")
 
-    filtered = []
-    for word in section_words:
-        word_top = float(word["top"])
-        word_bottom = float(word["bottom"])
+    left = float(left_border["x0"]) if left_border else max(0.0, float(anchor["x0"]) - 20.0)
+    right = float(right_border["x0"]) if right_border else min(float(page_width), float(anchor["x1"]) + 320.0)
+    top = float(top_border["top"]) if top_border else max(0.0, float(anchor["top"]) - 12.0)
 
-        overlaps_heading_band = not (word_bottom < heading_top or word_top > heading_bottom)
-        if not overlaps_heading_band:
-            filtered.append(word)
+    if right <= left:
+        right = min(float(page_width), left + 300.0)
 
-    return filtered
+    section_words = find_fixture_section_words(
+        words,
+        anchor,
+        page_width,
+        page_height,
+        x0=left,
+        x1=right,
+    )
 
+    words_below_heading = [
+        w for w in section_words if float(w.get("top", 0.0)) >= float(anchor["bottom"]) - 2.0
+    ]
+    words_for_bottom = words_below_heading if words_below_heading else section_words
 
-def build_bbox_from_words(section_words, page_width, page_height, padding=20):
-    """Build a padded bbox from the provided section words."""
-    if not section_words:
-        return None
+    if words_for_bottom:
+        content_bottom = max(float(w.get("bottom", 0.0)) for w in words_for_bottom)
+        bottom = min(float(page_height), content_bottom + 12.0)
+    else:
+        bottom = min(float(page_height), float(anchor["bottom"]) + 200.0)
 
-    min_x0 = min(float(word["x0"]) for word in section_words)
-    max_x1 = max(float(word["x1"]) for word in section_words)
-    min_top = min(float(word["top"]) for word in section_words)
-    max_bottom = max(float(word["bottom"]) for word in section_words)
+    if bottom <= top:
+        bottom = min(float(page_height), top + 120.0)
 
-    x0 = max(0.0, min_x0 - padding)
-    top = max(0.0, min_top - padding)
-    x1 = min(float(page_width), max_x1 + padding)
-    bottom = min(float(page_height), max_bottom + padding)
+    bbox = (
+        max(0.0, left),
+        max(0.0, top),
+        min(float(page_width), right),
+        min(float(page_height), bottom),
+    )
 
-    return (x0, top, x1, bottom)
+    debug_info = {
+        "nearby_line_segments_count": len(nearby.get("nearby_segments", [])),
+        "local_window": nearby.get("local_window"),
+        "chosen_boundaries": {
+            "left": bbox[0],
+            "right": bbox[2],
+            "top": bbox[1],
+            "bottom": bbox[3],
+        },
+        "left_border": left_border,
+        "right_border": right_border,
+        "top_border": top_border,
+        "fixture_words_for_bottom_count": len(words_for_bottom),
+    }
 
-
-def build_fixture_symbols_bbox(anchor, words, page_width, page_height):
-    """Build a dynamic bbox around Fixture Symbols from local anchor-based words."""
-    local_words = find_fixture_section_words(words, anchor, page_width, page_height)
-    content_words = filter_out_heading_words(local_words, anchor)
-
-    words_for_bbox = content_words if content_words else local_words
-    section_bbox = build_bbox_from_words(words_for_bbox, page_width, page_height, padding=12)
-
-    if section_bbox is None:
-        heading_only_bbox = build_bbox_from_words([anchor], page_width, page_height, padding=8)
-        return heading_only_bbox, []
-
-    section_x0, section_top, section_x1, section_bottom = section_bbox
-
-    x0 = min(section_x0, float(anchor["x0"]))
-    top = min(section_top, float(anchor["top"]))
-    x1 = max(section_x1, float(anchor["x1"]))
-    bottom = max(section_bottom, float(anchor["bottom"]))
-
-    modest_padding = 8.0
-    x0 = max(0.0, x0 - modest_padding)
-    top = max(0.0, top - modest_padding)
-    x1 = min(float(page_width), x1 + modest_padding)
-    bottom = min(float(page_height), bottom + modest_padding)
-
-    return (x0, top, x1, bottom), words_for_bbox
+    return bbox, debug_info
 
 
 def crop_region(page, bbox):
