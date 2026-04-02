@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from pdf_reader import filter_words_in_region
 from section_config import get_section_settings
 
@@ -16,58 +18,106 @@ def _spans_anchor_band_vertical(segment: dict, anchor_top: float, anchor_bottom:
     return seg_top <= anchor_top + 2.0 and seg_bottom >= anchor_bottom - 2.0
 
 
-def _match_heading_from_tokens(words: list[dict], target_tokens: list[str]) -> dict | None:
+def _normalize_text(value: str) -> str:
+    return " ".join(str(value).upper().split())
+
+
+def _normalize_token(token: str) -> str:
+    cleaned = re.sub(r"[^A-Z0-9]", "", str(token).upper())
+    if cleaned.endswith("S") and len(cleaned) > 1:
+        cleaned = cleaned[:-1]
+    return cleaned
+
+
+def _tokenize(value: str) -> list[str]:
+    normalized = _normalize_text(value)
+    if not normalized:
+        return []
+    return [tok for tok in (_normalize_token(part) for part in normalized.split()) if tok]
+
+
+def _has_token_match(candidate_text: str, target_text: str, min_matches: int = 2) -> bool:
+    target_tokens = _tokenize(target_text)
+    candidate_tokens = _tokenize(candidate_text)
+    if not target_tokens or not candidate_tokens:
+        return False
+
+    target_set = set(target_tokens)
+    candidate_set = set(candidate_tokens)
+    matched_count = len(target_set & candidate_set)
+
+    required = min(min_matches, len(target_set), len(candidate_set))
+    return matched_count >= required
+
+
+def _build_line_phrases(words: list[dict]) -> list[dict]:
     words_by_top = sorted(words, key=lambda word: (float(word.get("top", 0.0)), float(word.get("x0", 0.0))))
+    if not words_by_top:
+        return []
 
-    for index in range(len(words_by_top) - len(target_tokens) + 1):
-        group = words_by_top[index : index + len(target_tokens)]
-        group_tokens = [str(item.get("text", "")).strip().upper() for item in group]
-
-        if group_tokens != target_tokens:
+    lines: list[list[dict]] = []
+    for word in words_by_top:
+        if not lines:
+            lines.append([word])
             continue
 
-        top_values = [float(item.get("top", 0.0)) for item in group]
-        bottom_values = [float(item.get("bottom", 0.0)) for item in group]
-        x0_values = [float(item.get("x0", 0.0)) for item in group]
-        x1_values = [float(item.get("x1", 0.0)) for item in group]
+        current_top = float(word.get("top", 0.0))
+        last_line = lines[-1]
+        avg_top = sum(float(item.get("top", 0.0)) for item in last_line) / len(last_line)
+        if abs(current_top - avg_top) <= 8.0:
+            last_line.append(word)
+        else:
+            lines.append([word])
 
-        if max(top_values) - min(top_values) > 8.0:
-            continue
+    phrases: list[dict] = []
+    for line in lines:
+        ordered = sorted(line, key=lambda item: float(item.get("x0", 0.0)))
+        for start in range(len(ordered)):
+            phrase_words = [ordered[start]]
+            for end in range(start, len(ordered)):
+                if end > start:
+                    gap = float(ordered[end].get("x0", 0.0)) - float(ordered[end - 1].get("x1", 0.0))
+                    if gap > 140.0:
+                        break
+                    phrase_words.append(ordered[end])
 
-        if any(
-            float(group[idx + 1].get("x0", 0.0)) - float(group[idx].get("x1", 0.0)) > 240.0
-            for idx in range(len(group) - 1)
-        ):
-            continue
+                phrase_text = " ".join(str(item.get("text", "")) for item in phrase_words)
+                phrases.append(
+                    {
+                        "text": phrase_text,
+                        "x0": min(float(item.get("x0", 0.0)) for item in phrase_words),
+                        "x1": max(float(item.get("x1", 0.0)) for item in phrase_words),
+                        "top": min(float(item.get("top", 0.0)) for item in phrase_words),
+                        "bottom": max(float(item.get("bottom", 0.0)) for item in phrase_words),
+                    }
+                )
 
-        return {
-            "x0": min(x0_values),
-            "x1": max(x1_values),
-            "top": min(top_values),
-            "bottom": max(bottom_values),
-        }
-
-    return None
+    return phrases
 
 
 def find_section_anchor(words, target_text):
     """
-    Find heading anchor coordinates for a section title.
+    Find heading anchor coordinates for a section title using flexible matching.
 
     Supports:
     - full phrase in one word entry
-    - nearby separate words forming the phrase
+    - nearby separate words forming multi-word phrases
+    - token-based matching (handles singular/plural differences)
     """
     if not words:
         return None
 
-    target = " ".join(target_text.strip().upper().split())
+    target = _normalize_text(target_text)
     if not target:
         return None
 
+    # 1) Direct/partial check against individual words.
     for word in words:
-        text = " ".join(str(word.get("text", "")).strip().upper().split())
-        if text == target:
+        text = _normalize_text(str(word.get("text", "")))
+        if not text:
+            continue
+
+        if target in text or text in target or _has_token_match(text, target):
             return {
                 "x0": float(word["x0"]),
                 "top": float(word["top"]),
@@ -75,11 +125,22 @@ def find_section_anchor(words, target_text):
                 "bottom": float(word["bottom"]),
             }
 
-    tokens = [part for part in target.split() if part]
-    if not tokens:
-        return None
+    # 2) Build multi-word candidate phrases from nearby words on same line.
+    phrase_candidates = _build_line_phrases(words)
+    for candidate in phrase_candidates:
+        candidate_text = _normalize_text(candidate.get("text", ""))
+        if not candidate_text:
+            continue
 
-    return _match_heading_from_tokens(words, tokens)
+        if target in candidate_text or _has_token_match(candidate_text, target):
+            return {
+                "x0": float(candidate["x0"]),
+                "top": float(candidate["top"]),
+                "x1": float(candidate["x1"]),
+                "bottom": float(candidate["bottom"]),
+            }
+
+    return None
 
 
 def filter_words_between_xbounds(words, x0, x1, top=None, bottom=None):
