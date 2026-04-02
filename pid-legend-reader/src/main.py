@@ -23,9 +23,20 @@ def run_manual_valve_extraction_test() -> list[dict[str, str]]:
 
         drawing_number = "CYW111234640"
 
+        print("\n--- BV WORD DEBUG ---")
+        for word in words:
+            if "BV" in word.get("text", ""):
+                print(word)
+
         TEST_VALVES = [
-            {"type": "BALL VALVE", "bbox": (100.0, 100.0, 160.0, 140.0)},
-            {"type": "BUTTERFLY VALVE", "bbox": (220.0, 220.0, 280.0, 260.0)},
+            {
+                "type": "BALL VALVE",
+                "bbox": (100.0, 100.0, 160.0, 140.0),
+            },
+            {
+                "type": "BUTTERFLY VALVE",
+                "bbox": (220.0, 220.0, 280.0, 260.0),
+            },
         ]
 
         valve_records: list[dict[str, str]] = []
@@ -33,7 +44,13 @@ def run_manual_valve_extraction_test() -> list[dict[str, str]]:
         for valve in TEST_VALVES:
             valve_type = valve["type"]
             valve_bbox = valve["bbox"]
-            valve_id = extract_nearby_valve_id(words, valve_bbox, valve_type)
+
+            valve_id = extract_nearby_valve_id(
+                words=words,
+                valve_bbox=valve_bbox,
+                valve_type=valve_type,
+                debug=True,
+            )
             record = build_valve_record(
                 valve_id=valve_id,
                 valve_type=valve_type,
@@ -41,13 +58,12 @@ def run_manual_valve_extraction_test() -> list[dict[str, str]]:
             )
             valve_records.append(record)
 
-            print("--- VALVE EXTRACTION TEST ---")
+            print("\n--- VALVE EXTRACTION TEST ---")
             print(f"TYPE: {valve_type}")
             print(f"ID: {valve_id}")
             print(f"DRAWING: {drawing_number}")
-            print("")
 
-        print("--- FINAL VALVE RECORDS ---")
+        print("\n--- FINAL VALVE RECORDS ---")
         print(valve_records)
 
         return valve_records
