@@ -8,7 +8,7 @@ from legend_cropper import (
     find_section_anchor_record,
     save_cropped_image,
 )
-from legend_parser import parse_fixture_records
+from legend_parser import parse_fixture_records, parse_section
 from pdf_reader import (
     combine_line_like_objects,
     extract_lines,
@@ -146,19 +146,16 @@ def main() -> None:
                         "bottom_line": None,
                     }
 
+            all_section_records: list[dict[str, str]] = []
+
             fixture_result = section_results.get("fixture_symbols")
-            if not fixture_result or not fixture_result.get("found"):
-                print("\nFixture Symbols not available for parsing.")
-                return
-
-            fixture_crop = fixture_result.get("crop")
-            if fixture_crop is None:
-                print("\nFixture Symbols crop is missing.")
-                return
-
-            fixture_bbox = fixture_result.get("bbox")
-            cropped_words = fixture_crop.extract_words() or []
-            fixture_records = parse_fixture_records(cropped_words, fixture_bbox)
+            fixture_records: list[dict[str, str | None]] = []
+            if fixture_result and fixture_result.get("found") and fixture_result.get("crop") is not None:
+                fixture_crop = fixture_result.get("crop")
+                fixture_bbox = fixture_result.get("bbox")
+                cropped_words = fixture_crop.extract_words() or []
+                fixture_records = parse_fixture_records(cropped_words, fixture_bbox)
+                all_section_records.extend(parse_section(cropped_words, "fixture"))
 
             print("\n--- FIXTURE RECORDS ---\n")
             for record in fixture_records:
@@ -166,9 +163,40 @@ def main() -> None:
                 tag = str(record.get("tag") or "UNKNOWN")
                 description = " ".join(str(record.get("description") or "").split()).strip()
                 print(f"[{side}] {tag} -> {description}")
-
             if not fixture_records:
                 print("(no fixture records)")
+
+            piping_result = section_results.get("piping_elements")
+            piping_records: list[dict[str, str]] = []
+            if piping_result and piping_result.get("found") and piping_result.get("crop") is not None:
+                piping_words = piping_result["crop"].extract_words() or []
+                piping_records = parse_section(piping_words, "piping")
+                all_section_records.extend(piping_records)
+
+            print("\n--- PIPING RECORDS ---\n")
+            for record in piping_records:
+                print(f"[L] {record['left']} -> {record['right']}")
+            if not piping_records:
+                print("(no piping records)")
+
+            valve_result = section_results.get("valve_symbols")
+            valve_records: list[dict[str, str]] = []
+            if valve_result and valve_result.get("found") and valve_result.get("crop") is not None:
+                valve_words = valve_result["crop"].extract_words() or []
+                valve_records = parse_section(valve_words, "valve")
+                all_section_records.extend(valve_records)
+
+            print("\n--- VALVE RECORDS ---\n")
+            for record in valve_records:
+                print(f"[L] {record['left']} -> {record['right']}")
+            if not valve_records:
+                print("(no valve records)")
+
+            print("\n--- ALL SECTION RECORDS ---\n")
+            for record in all_section_records:
+                print(record)
+            if not all_section_records:
+                print("(no records)")
 
             print("\n--- SECTION SUMMARY ---")
             for section in SECTIONS:
