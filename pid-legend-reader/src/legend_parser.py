@@ -4,7 +4,17 @@ import re
 from typing import Any
 
 
-WORD_TAG_PATTERN = re.compile(r"^[A-Z][A-Z0-9.-]{0,11}$")
+TAG_BLACKLIST = {
+    "WALL",
+    "MOUNTED",
+    "KITCHEN",
+    "DOUBLE",
+    "FIXTURE",
+    "SYMBOLS",
+    "WATER",
+    "CLOSET",
+    "LAVATORY",
+}
 
 
 def normalize_space(text: str) -> str:
@@ -114,23 +124,37 @@ def build_side_row_objects(
 
 
 def is_probable_tag(text: str) -> bool:
-    """Return True when text looks like a short fixture code/tag."""
+    """Return True when text looks like a fixture code/tag."""
     cleaned = normalize_space(text)
-    if not cleaned or len(cleaned) > 12:
+    if not cleaned:
         return False
 
-    if " " in cleaned:
+    if " " in cleaned or "," in cleaned:
         return False
 
-    if not WORD_TAG_PATTERN.match(cleaned):
+    if len(cleaned) < 2 or len(cleaned) > 8:
         return False
 
-    alpha_chars = [char for char in cleaned if char.isalpha()]
-    if not alpha_chars:
+    if cleaned.upper() in TAG_BLACKLIST:
         return False
 
-    upper_ratio = sum(1 for char in alpha_chars if char.isupper()) / len(alpha_chars)
-    return upper_ratio >= 0.8
+    if sum(1 for char in cleaned if char.islower()) / len(cleaned) > 0.7:
+        return False
+
+    if cleaned != cleaned.upper():
+        return False
+
+    if not re.fullmatch(r"[A-Z0-9.-]+", cleaned):
+        return False
+
+    letter_count = sum(1 for char in cleaned if char.isalpha())
+    if letter_count == 0:
+        return False
+
+    if letter_count / len(cleaned) < 0.6:
+        return False
+
+    return True
 
 
 def split_tag_and_description(words: list[dict[str, Any]]) -> dict[str, str | None]:
@@ -153,7 +177,7 @@ def split_tag_and_description(words: list[dict[str, Any]]) -> dict[str, str | No
     if tag_index is None:
         return {
             "tag": None,
-            "description": build_row_text(ordered),
+            "description": normalize_space(" ".join(text for text in texts if text)),
         }
 
     description = normalize_space(" ".join(text for text in texts[tag_index + 1 :] if text))
@@ -192,16 +216,6 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
         if current_record and description:
             current_description = normalize_space(str(current_record.get("description") or ""))
             current_record["description"] = normalize_space(f"{current_description} {description}")
-            continue
-
-        if description:
-            records.append(
-                {
-                    "side": row_side,
-                    "tag": None,
-                    "description": description,
-                }
-            )
 
     if current_record:
         current_record["description"] = normalize_space(str(current_record.get("description") or ""))
