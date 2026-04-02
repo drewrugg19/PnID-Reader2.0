@@ -6,6 +6,7 @@ from legend_cropper import (
     build_fixture_symbols_bbox,
     crop_region,
     extract_crop_text,
+    find_fixture_section_words,
     find_fixture_symbols_anchor,
     save_cropped_image,
 )
@@ -51,15 +52,26 @@ def main() -> None:
 
             if anchor is None:
                 print("Fixture Symbols heading not found.")
-                sample_words = [w.get("text", "") for w in words[:20] if w.get("text")]
-                if sample_words:
-                    print("Detected word sample:")
-                    print(", ".join(sample_words))
                 return
 
             print(f"Fixture Symbols anchor: {anchor}")
 
-            bbox = build_fixture_symbols_bbox(anchor, page.width, page.height)
+            section_words = find_fixture_section_words(words, anchor, page.width, page.height)
+            print(f"Words used to build section bbox: {len(section_words)}")
+
+            bbox = build_fixture_symbols_bbox(anchor, words, page.width, page.height)
+            if bbox is None:
+                print("Unable to build Fixture Symbols section bbox from detected words.")
+                if section_words:
+                    nearby_words = [str(word.get("text", "")).strip() for word in section_words[:25]]
+                else:
+                    nearby_words = [str(word.get("text", "")).strip() for word in words[:25]]
+                nearby_words = [word for word in nearby_words if word]
+                if nearby_words:
+                    print("Nearby words sample:")
+                    print(", ".join(nearby_words))
+                return
+
             print(f"Fixture Symbols bbox: {bbox}")
 
             cropped_page = crop_region(page, bbox)
@@ -67,11 +79,11 @@ def main() -> None:
             log_step(f"Saved fixture symbols section image: {FIXTURE_SECTION_IMAGE_PATH}")
 
             cropped_text = extract_crop_text(cropped_page)
+            print("Extracted text from fixture symbols crop:")
             if cropped_text:
-                print("Extracted text from fixture symbols crop:")
                 print(cropped_text)
             else:
-                print("No text found in Fixture Symbols cropped region.")
+                print("(no text found)")
 
     except FileNotFoundError:
         log_step(f"ERROR: PDF file not found: {PDF_PATH}")

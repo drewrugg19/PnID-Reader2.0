@@ -25,6 +25,36 @@ def extract_words(page) -> list[dict]:
     return page.extract_words() or []
 
 
+def filter_words_in_region(
+    words: list[dict],
+    x0: float | None = None,
+    x1: float | None = None,
+    top: float | None = None,
+    bottom: float | None = None,
+) -> list[dict]:
+    """Return words whose bounds are fully inside the provided region limits."""
+    filtered: list[dict] = []
+
+    for word in words:
+        wx0 = float(word.get("x0", 0.0))
+        wx1 = float(word.get("x1", 0.0))
+        wtop = float(word.get("top", 0.0))
+        wbottom = float(word.get("bottom", 0.0))
+
+        if x0 is not None and wx0 < x0:
+            continue
+        if x1 is not None and wx1 > x1:
+            continue
+        if top is not None and wtop < top:
+            continue
+        if bottom is not None and wbottom > bottom:
+            continue
+
+        filtered.append(word)
+
+    return filtered
+
+
 def find_heading_words(words: list[dict], target_text: str) -> list[dict]:
     """
     Find words matching a target heading case-insensitively.
