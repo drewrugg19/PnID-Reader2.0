@@ -152,7 +152,7 @@ def main() -> None:
             fixture_records: list[dict[str, str]] = []
             if fixture_result and fixture_result.get("found") and fixture_result.get("crop") is not None:
                 fixture_words = fixture_result["crop"].extract_words() or []
-                fixture_records = parse_section(fixture_words, "fixture")
+                fixture_records = parse_section(fixture_words, "fixture", fixture_result.get("bbox"))
                 all_section_records.extend(fixture_records)
 
             print("\n--- FIXTURE RECORDS ---\n")
@@ -165,7 +165,7 @@ def main() -> None:
             piping_records: list[dict[str, str]] = []
             if piping_result and piping_result.get("found") and piping_result.get("crop") is not None:
                 piping_words = piping_result["crop"].extract_words() or []
-                piping_records = parse_section(piping_words, "piping")
+                piping_records = parse_section(piping_words, "piping", piping_result.get("bbox"))
                 all_section_records.extend(piping_records)
 
             print("\n--- PIPING RECORDS ---\n")
@@ -178,7 +178,7 @@ def main() -> None:
             valve_records: list[dict[str, str]] = []
             if valve_result and valve_result.get("found") and valve_result.get("crop") is not None:
                 valve_words = valve_result["crop"].extract_words() or []
-                valve_records = parse_section(valve_words, "valve")
+                valve_records = parse_section(valve_words, "valve", valve_result.get("bbox"))
                 all_section_records.extend(valve_records)
 
             print("\n--- VALVE RECORDS ---\n")
