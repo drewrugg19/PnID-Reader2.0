@@ -14,10 +14,13 @@ TAG_BLACKLIST = {
     "WATER",
     "CLOSET",
     "LAVATORY",
+    "COOLER",
+    "SINK",
+    "ELECTRIC",
+    "FLOOR",
+    "RECEPTOR",
+    "EYEWASH",
 }
-
-MAX_VERTICAL_GAP = 12.0
-MAX_DESC_X_ALIGNMENT_DELTA = 25.0
 
 
 def normalize_space(text: str) -> str:
@@ -96,6 +99,7 @@ def build_side_row_objects(
             continue
 
         row_top = min(float(word.get("top", 0)) for word in row)
+        row_bottom = max(float(word.get("bottom", word.get("top", 0))) for word in row)
         if row_top <= header_cutoff:
             continue
 
@@ -118,8 +122,12 @@ def build_side_row_objects(
                 {
                     "side": side,
                     "top": row_top,
-                    "words": side_words,
+                    "bottom": row_bottom,
                     "text": text,
+                    "words": side_words,
+                    "tag": parsed.get("tag"),
+                    "description": parsed.get("description"),
+                    "tag_x0": parsed.get("tag_x0"),
                     "desc_x0": parsed.get("desc_x0"),
                 }
             )
@@ -165,7 +173,7 @@ def is_probable_tag(text: str) -> bool:
 def split_tag_and_description(words: list[dict[str, Any]]) -> dict[str, str | float | None]:
     """Detect the first probable tag in a side row and split description text."""
     if not words:
-        return {"tag": None, "description": "", "desc_x0": None}
+        return {"tag": None, "description": "", "tag_x0": None, "desc_x0": None}
 
     ordered = sorted(words, key=lambda w: float(w.get("x0", 0)))
     texts = [normalize_space(str(word.get("text", ""))) for word in ordered]
@@ -185,38 +193,65 @@ def split_tag_and_description(words: list[dict[str, Any]]) -> dict[str, str | fl
         return {
             "tag": None,
             "description": all_text,
+            "tag_x0": None,
             "desc_x0": desc_x0,
         }
 
+    tag_word = ordered[tag_index]
     description_words = ordered[tag_index + 1 :]
     description = normalize_space(" ".join(text for text in texts[tag_index + 1 :] if text))
     desc_x0: float | None = None
     if description_words:
-        desc_x0 = min(float(word.get("x0", 0)) for word in description_words)
+        desc_x0 = float(description_words[0].get("x0", 0))
 
     return {
         "tag": tag_value,
         "description": description,
+        "tag_x0": float(tag_word.get("x0", 0)),
         "desc_x0": desc_x0,
     }
 
 
+def is_continuation_row(
+    previous_record: dict[str, str | float | None] | None,
+    current_row: dict[str, Any],
+    max_vertical_gap: float = 22,
+    max_desc_x_delta: float = 35,
+) -> bool:
+    """Return True when current_row appears to continue previous_record description."""
+    if current_row.get("tag") is not None:
+        return False
+
+    if previous_record is None:
+        return False
+
+    row_top = float(current_row.get("top", 0))
+    previous_bottom = previous_record.get("last_bottom")
+    if previous_bottom is None:
+        return False
+
+    vertical_gap = row_top - float(previous_bottom)
+    if vertical_gap > max_vertical_gap:
+        return False
+
+    row_desc_x0 = current_row.get("desc_x0")
+    previous_desc_x0 = previous_record.get("desc_x0")
+    if row_desc_x0 is None or previous_desc_x0 is None:
+        return False
+
+    return abs(float(row_desc_x0) - float(previous_desc_x0)) <= max_desc_x_delta
+
+
 def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, str | None]]:
-    """Merge rows for one side, appending untagged rows as continuation text."""
+    """Merge rows for one side, appending only validated continuation rows."""
     records: list[dict[str, str | None]] = []
     current_record: dict[str, str | float | None] | None = None
 
     sorted_rows = sorted(side_rows, key=lambda item: float(item.get("top", 0)))
 
     for row in sorted_rows:
-        row_side = str(row.get("side", "")).lower()
-        row_top = float(row.get("top", 0))
-        row_words = row.get("words", [])
-
-        parsed = split_tag_and_description(row_words)
-        tag = parsed.get("tag")
-        description = str(parsed.get("description") or "")
-        desc_x0 = parsed.get("desc_x0")
+        tag = row.get("tag")
+        description = normalize_space(str(row.get("description") or ""))
 
         if tag:
             if current_record:
@@ -230,35 +265,20 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
                 )
 
             current_record = {
-                "side": row_side,
+                "side": str(row.get("side") or ""),
                 "tag": str(tag),
                 "description": description,
-                "desc_x0": desc_x0,
-                "last_top": row_top,
+                "desc_x0": row.get("desc_x0"),
+                "last_bottom": float(row.get("bottom", row.get("top", 0))),
             }
-            print(f"[DEBUG] tag={tag} desc_x0={desc_x0} action=new_record")
             continue
 
-        if current_record and description:
-            previous_desc_x0 = current_record.get("desc_x0")
-            previous_top = float(current_record.get("last_top") or 0)
-            vertical_gap = row_top - previous_top
-            x_alignment = (
-                previous_desc_x0 is not None
-                and desc_x0 is not None
-                and abs(float(desc_x0) - float(previous_desc_x0)) < MAX_DESC_X_ALIGNMENT_DELTA
-            )
-
-            if 0 <= vertical_gap <= MAX_VERTICAL_GAP and x_alignment:
-                current_description = str(current_record.get("description") or "")
-                current_record["description"] = f"{current_description} {description}".strip()
-                current_record["description"] = " ".join(str(current_record["description"]).split())
-                current_record["last_top"] = row_top
-                print(f"[DEBUG] tag=None desc_x0={desc_x0} action=merged")
-            else:
-                print(f"[DEBUG] tag=None desc_x0={desc_x0} action=ignored")
-        else:
-            print(f"[DEBUG] tag=None desc_x0={desc_x0} action=ignored")
+        if is_continuation_row(current_record, row):
+            assert current_record is not None
+            existing_description = str(current_record.get("description") or "")
+            combined = f"{existing_description} {description}" if description else existing_description
+            current_record["description"] = normalize_space(combined)
+            current_record["last_bottom"] = float(row.get("bottom", row.get("top", 0)))
 
     if current_record:
         current_record["description"] = normalize_space(str(current_record.get("description") or ""))
