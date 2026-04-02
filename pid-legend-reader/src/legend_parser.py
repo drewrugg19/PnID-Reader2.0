@@ -215,6 +215,48 @@ def split_tag_and_description(words: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def sort_description_words(words: list[dict[str, Any]], line_tolerance: float = 5) -> list[dict[str, Any]]:
+    """Sort words in natural reading order using line grouping, then left-to-right."""
+    if not words:
+        return []
+
+    words_by_top = sorted(words, key=lambda word: float(word.get("top", 0)))
+    lines: list[list[dict[str, Any]]] = []
+
+    for word in words_by_top:
+        word_top = float(word.get("top", 0))
+        assigned = False
+
+        for line in lines:
+            line_avg_top = sum(float(item.get("top", 0)) for item in line) / len(line)
+            if abs(word_top - line_avg_top) < line_tolerance:
+                line.append(word)
+                assigned = True
+                break
+
+        if not assigned:
+            lines.append([word])
+
+    lines.sort(key=lambda line: sum(float(item.get("top", 0)) for item in line) / len(line))
+
+    ordered_words: list[dict[str, Any]] = []
+    for line in lines:
+        ordered_words.extend(sorted(line, key=lambda word: float(word.get("x0", 0))))
+
+    return ordered_words
+
+
+def build_description_from_words(words: list[dict[str, Any]]) -> str:
+    """Build normalized description text from ordered word objects."""
+    return normalize_space(
+        " ".join(
+            str(word.get("text", "")).strip()
+            for word in words
+            if str(word.get("text", "")).strip()
+        )
+    )
+
+
 def is_continuation_row(
     previous_record: dict[str, str | float | None] | None,
     current_row: dict[str, Any],
@@ -258,18 +300,9 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
 
         if tag:
             if current_record:
-                ordered_words = sorted(
-                    list(current_record.get("description_words") or []),
-                    key=lambda word: (float(word.get("x0", 0)), round(float(word.get("top", 0)), 1)),
-                )
+                ordered_words = sort_description_words(list(current_record.get("description_words") or []))
                 if ordered_words:
-                    current_record["description"] = normalize_space(
-                        " ".join(
-                            str(word.get("text", "")).strip()
-                            for word in ordered_words
-                            if str(word.get("text", "")).strip()
-                        )
-                    )
+                    current_record["description"] = build_description_from_words(ordered_words)
                 else:
                     current_record["description"] = normalize_space(str(current_record.get("description") or ""))
                 records.append(
@@ -295,32 +328,14 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
             description_words = list(current_record.get("description_words") or [])
             description_words.extend(list(row.get("description_words") or []))
             current_record["description_words"] = description_words
-            ordered_words = sorted(
-                description_words,
-                key=lambda word: (float(word.get("x0", 0)), round(float(word.get("top", 0)), 1)),
-            )
-            current_record["description"] = normalize_space(
-                " ".join(
-                    str(word.get("text", "")).strip()
-                    for word in ordered_words
-                    if str(word.get("text", "")).strip()
-                )
-            )
+            ordered_words = sort_description_words(description_words)
+            current_record["description"] = build_description_from_words(ordered_words)
             current_record["last_bottom"] = float(row.get("bottom", row.get("top", 0)))
 
     if current_record:
-        ordered_words = sorted(
-            list(current_record.get("description_words") or []),
-            key=lambda word: (float(word.get("x0", 0)), round(float(word.get("top", 0)), 1)),
-        )
+        ordered_words = sort_description_words(list(current_record.get("description_words") or []))
         if ordered_words:
-            current_record["description"] = normalize_space(
-                " ".join(
-                    str(word.get("text", "")).strip()
-                    for word in ordered_words
-                    if str(word.get("text", "")).strip()
-                )
-            )
+            current_record["description"] = build_description_from_words(ordered_words)
         else:
             current_record["description"] = normalize_space(str(current_record.get("description") or ""))
         records.append(
