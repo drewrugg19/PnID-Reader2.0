@@ -1,21 +1,26 @@
 # P&ID Legend Reader
 
-Phase 1 project for opening and inspecting P&ID PDF files, with focus on preparing a clean foundation for legend-box extraction and parsing.
+This repository is currently in **Phase 2**.
 
-## Setup
+## What Phase 2 Does
 
-1. Create and activate a virtual environment:
+Phase 2 is intentionally small and focused on manual debugging of one legend box region:
 
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   ```
+1. Open a PDF file
+2. Read page 1
+3. Save a full-page debug image
+4. Crop one manually defined bounding box (bbox)
+5. Save the cropped image
+6. Extract text from the cropped region
+7. Print clear debug output to the console
 
-2. Install dependencies:
+This phase does **not** include OCR, automatic detection, symbol recognition, OpenCV, or full legend parsing.
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+## Input PDF
+
+Place your test PDF at:
+
+- `data/input/sample_pid.pdf`
 
 ## Run
 
@@ -25,12 +30,19 @@ From the `pid-legend-reader` directory:
 python src/main.py
 ```
 
-Expected PDF input path:
+## Debug Output Files Created
 
-- `data/input/sample_pid.pdf`
+Running the script creates:
 
-## Future Phases
+- `debug/page_1_full.png`
+- `debug/page_1_crop.png`
 
-- Phase 2: Crop candidate legend regions from page coordinates.
-- Phase 3: Parse legend entries into structured symbol-description pairs.
-- Phase 4: Export parsed legend data to machine-readable outputs.
+The script also ensures these folders exist:
+
+- `debug/`
+- `data/output/`
+
+## Manual BBox Note
+
+The bbox values are **manually set for now** (for example `(100, 100, 350, 250)`).
+They are expected to be tuned as needed in later steps.
