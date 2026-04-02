@@ -14,9 +14,13 @@ The script now:
 4. Extracts word-level data from the page
 5. Searches for the **"FIXTURE SYMBOLS"** heading text dynamically
 6. Uses the heading coordinates as an anchor
-7. Builds a reasonable dynamic crop region around the heading and section below
-8. Saves the cropped section image
-9. Extracts and prints text from the cropped region
+7. Finds detected words in a broad search window below the heading
+8. Builds the crop box from the real bounds of those detected words (with safe padding)
+9. Includes the heading in the final crop bounds
+10. Saves the cropped section image
+11. Extracts and prints text from the cropped region
+
+This crop logic is now content-based instead of a fixed guessed rectangle. The goal is to capture the true Fixture Symbols section boundaries before later phases split symbols vs. description text.
 
 This phase does **not** include OCR, OpenCV, symbol recognition, machine learning, row parsing, or full legend parsing.
 
@@ -49,4 +53,4 @@ The script also ensures these folders exist:
 ## Status Note
 
 This is still an intermediate phase before row-by-row legend parsing.
-The current goal is only dynamic heading-based anchoring and section cropping for **Fixture Symbols**.
+The current goal is only dynamic heading-based anchoring and accurate section cropping for **Fixture Symbols**.
