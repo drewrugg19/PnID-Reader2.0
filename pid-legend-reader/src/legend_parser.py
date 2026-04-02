@@ -387,12 +387,91 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
     return records
 
 
+
+
+def _median(values: list[float]) -> float:
+    if not values:
+        return 0.0
+
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def build_section_rows(
+    words: list[dict[str, Any]], y_tolerance: float = 5, header_cutoff: float = 40
+) -> list[dict[str, list[dict[str, Any]]]]:
+    grouped_rows = group_words_into_rows(words, y_tolerance=y_tolerance)
+
+    midpoints = [
+        (float(word.get("x0", 0)) + float(word.get("x1", 0))) / 2
+        for word in words
+    ]
+    split_x = _median(midpoints)
+
+    rows: list[dict[str, list[dict[str, Any]]]] = []
+    for row in grouped_rows:
+        if not row:
+            continue
+
+        row_top = min(float(word.get("top", 0)) for word in row)
+        if row_top <= header_cutoff:
+            continue
+
+        left_words, right_words = split_words_by_side(row, split_x)
+        rows.append({"left_words": left_words, "right_words": right_words})
+
+    return rows
+
+
+def parse_section(words: list[dict[str, Any]], section_type: str) -> list[dict[str, str]]:
+    normalized_section = normalize_space(section_type).lower()
+
+    if normalized_section == "fixture":
+        fixture_records = parse_fixture_records(words, section_bbox=(0, 0, 0, 0))
+        return [
+            {
+                "left": normalize_space(str(record.get("tag") or "")),
+                "right": normalize_space(str(record.get("description") or "")),
+                "section": "fixture",
+            }
+            for record in fixture_records
+            if normalize_space(str(record.get("tag") or "")) and normalize_space(str(record.get("description") or ""))
+        ]
+
+    if normalized_section not in {"piping", "valve"}:
+        return []
+
+    rows = build_section_rows(words)
+    records: list[dict[str, str]] = []
+
+    for row in rows:
+        left = normalize_space(build_row_text(row.get("left_words", [])))
+        right = normalize_space(build_row_text(row.get("right_words", [])))
+
+        if not left or not right:
+            continue
+
+        records.append({"left": left, "right": right, "section": normalized_section})
+
+    return records
+
+
 def parse_fixture_records(
     words: list[dict[str, Any]], section_bbox: tuple[float, float, float, float]
 ) -> list[dict[str, str | None]]:
     """Parse fixture words into final side/tag/description records."""
     grouped_rows = group_words_into_rows(words)
     split_x = (section_bbox[0] + section_bbox[2]) / 2
+    if split_x == 0:
+        midpoints = [
+            (float(word.get("x0", 0)) + float(word.get("x1", 0))) / 2
+            for word in words
+        ]
+        split_x = _median(midpoints)
 
     side_rows = build_side_row_objects(grouped_rows, split_x)
     left_rows = [row for row in side_rows if row.get("side") == "left"]
