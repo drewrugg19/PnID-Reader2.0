@@ -3,13 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from legend_cropper import (
-    build_fixture_symbols_bbox,
+    build_fixture_symbols_bbox_from_lines,
     crop_region,
     extract_crop_text,
     find_fixture_symbols_anchor,
     save_cropped_image,
 )
 from pdf_reader import (
+    combine_line_like_objects,
+    extract_lines,
+    extract_rects,
     extract_words,
     find_heading_words,
     get_page,
@@ -27,7 +30,7 @@ FIXTURE_SECTION_IMAGE_PATH = DEBUG_DIR / "fixture_symbols_section.png"
 
 def main() -> None:
     try:
-        log_step("Starting Phase 2: dynamic Fixture Symbols heading anchor and crop")
+        log_step("Starting Phase 2: fixture symbols box-line anchored crop")
 
         ensure_directory(str(DEBUG_DIR))
         ensure_directory(str(OUTPUT_DIR))
@@ -46,6 +49,15 @@ def main() -> None:
             log_step(f"Saved full-page debug image: {FULL_PAGE_IMAGE_PATH}")
 
             words = extract_words(page)
+            lines = extract_lines(page)
+            rects = extract_rects(page)
+            line_segments = combine_line_like_objects(page)
+
+            print(f"Extracted words: {len(words)}")
+            print(f"Extracted lines: {len(lines)}")
+            print(f"Extracted rects: {len(rects)}")
+            print(f"Combined line-like segments: {len(line_segments)}")
+
             heading_matches = find_heading_words(words, "FIXTURE SYMBOLS")
             anchor = find_fixture_symbols_anchor(heading_matches or words)
 
@@ -55,26 +67,23 @@ def main() -> None:
 
             print(f"Fixture Symbols anchor: {anchor}")
 
-            local_window = {
-                "x0": max(0.0, float(anchor["x0"]) - 450.0),
-                "x1": min(float(page.width), float(anchor["x1"]) + 550.0),
-                "top": max(0.0, float(anchor["top"]) - 40.0),
-                "bottom": min(float(page.height), float(anchor["bottom"]) + 700.0),
-            }
-            print(f"Local search window: {local_window}")
-
-            bbox, section_words = build_fixture_symbols_bbox(
+            bbox, debug_info = build_fixture_symbols_bbox_from_lines(
                 anchor,
+                line_segments,
                 words,
                 page.width,
                 page.height,
             )
 
             if bbox is None:
-                print("Unable to build Fixture Symbols section bbox from detected words.")
+                print("Unable to build Fixture Symbols section bbox from nearby table lines.")
                 return
 
-            print(f"Words used to build section bbox: {len(section_words)}")
+            print(
+                "Nearby line segments considered:",
+                debug_info.get("nearby_line_segments_count", 0),
+            )
+            print("Chosen boundaries:", debug_info.get("chosen_boundaries", {}))
             print(f"Fixture Symbols bbox: {bbox}")
 
             cropped_page = crop_region(page, bbox)

@@ -25,6 +25,67 @@ def extract_words(page) -> list[dict]:
     return page.extract_words() or []
 
 
+def extract_lines(page) -> list[dict]:
+    """Extract line objects from a PDF page."""
+    return page.lines or []
+
+
+def extract_rects(page) -> list[dict]:
+    """Extract rectangle objects from a PDF page."""
+    return page.rects or []
+
+
+def _normalize_segment(x0: float, x1: float, top: float, bottom: float) -> dict | None:
+    width = abs(float(x1) - float(x0))
+    height = abs(float(bottom) - float(top))
+
+    if width < 0.01 and height < 0.01:
+        return None
+
+    orientation = "horizontal" if width >= height else "vertical"
+    return {
+        "x0": min(float(x0), float(x1)),
+        "x1": max(float(x0), float(x1)),
+        "top": min(float(top), float(bottom)),
+        "bottom": max(float(top), float(bottom)),
+        "orientation": orientation,
+    }
+
+
+def combine_line_like_objects(page) -> list[dict]:
+    """Combine page lines and rectangle edges into normalized line-like segments."""
+    segments: list[dict] = []
+
+    for line in extract_lines(page):
+        segment = _normalize_segment(
+            line.get("x0", 0.0),
+            line.get("x1", 0.0),
+            line.get("top", 0.0),
+            line.get("bottom", 0.0),
+        )
+        if segment is not None:
+            segments.append(segment)
+
+    for rect in extract_rects(page):
+        x0 = float(rect.get("x0", 0.0))
+        x1 = float(rect.get("x1", 0.0))
+        top = float(rect.get("top", 0.0))
+        bottom = float(rect.get("bottom", 0.0))
+
+        rect_edges = [
+            _normalize_segment(x0, x1, top, top),
+            _normalize_segment(x0, x1, bottom, bottom),
+            _normalize_segment(x0, x0, top, bottom),
+            _normalize_segment(x1, x1, top, bottom),
+        ]
+
+        for edge in rect_edges:
+            if edge is not None:
+                segments.append(edge)
+
+    return segments
+
+
 def filter_words_in_region(
     words: list[dict],
     x0: float | None = None,
