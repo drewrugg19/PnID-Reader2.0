@@ -4,7 +4,7 @@ This repository is currently in **Phase 2**.
 
 ## What This Phase Does
 
-This phase is focused on dynamically locating and cropping only the **Fixture Symbols** section.
+This phase now supports reusable multi-section legend detection and cropping from page 1.
 
 The script now:
 
@@ -14,16 +14,15 @@ The script now:
 4. Extracts word-level data
 5. Extracts structural line and rectangle data from `pdfplumber`
 6. Combines line + rectangle edges into normalized line-like segments
-7. Finds the **"FIXTURE SYMBOLS"** heading anchor
-8. Searches for nearby table borders around that anchor (left, right, and top)
-9. Builds the crop box primarily from those detected table borders
-10. Uses words only to estimate the lower content extent (bottom)
-11. Saves the cropped section image
-12. Extracts and prints text from the cropped region
+7. Detects section anchors for:
+   - **FIXTURE SYMBOLS**
+   - **PIPING ELEMENTS**
+   - **VALVE SYMBOLS**
+8. Builds each section crop box from nearby line borders with word-based bottom estimation
+9. Saves one debug crop image per detected section
+10. Continues full parsing only for **Fixture Symbols** records
 
-This line-based approach is more reliable than broad word-only bounds because it is anchored to the visible table box around the Fixture Symbols section.
-
-This phase does **not** include OCR, OpenCV, symbol recognition, machine learning, row parsing, symbol/text column splitting, or full legend parsing.
+This phase does **not** include OCR, OpenCV, symbol recognition, machine learning, full Piping Elements parsing, or full Valve Symbols parsing.
 
 ## Input PDF
 
@@ -44,7 +43,9 @@ python src/main.py
 Running the script creates:
 
 - `debug/page_1_full.png`
-- `debug/fixture_symbols_section.png`
+- `debug/fixture_symbols.png` (if detected)
+- `debug/piping_elements.png` (if detected)
+- `debug/valve_symbols.png` (if detected)
 
 The script also ensures these folders exist:
 
@@ -53,5 +54,6 @@ The script also ensures these folders exist:
 
 ## Status Note
 
-This is still an intermediate phase before row-by-row legend parsing.
-The current goal is only accurate table-border anchored section cropping for **Fixture Symbols**.
+- Section detection and cropping are implemented for Fixture Symbols, Piping Elements, and Valve Symbols.
+- **Only Fixture Symbols is fully parsed** at this stage.
+- Piping Elements and Valve Symbols are currently cropped/debugged for the next phase.

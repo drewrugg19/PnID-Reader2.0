@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from legend_cropper import (
-    build_fixture_symbols_bbox_from_lines,
+    build_section_bbox_from_lines,
     crop_region,
-    find_fixture_symbols_anchor,
+    find_section_anchor,
     save_cropped_image,
 )
 from legend_parser import parse_fixture_records
@@ -14,23 +14,22 @@ from pdf_reader import (
     extract_lines,
     extract_rects,
     extract_words,
-    find_heading_words,
     get_page,
     open_pdf,
     save_page_image,
 )
+from section_config import SECTION_NAMES, normalize_section_name
 from utils import ensure_directory, log_step
 
 PDF_PATH = Path("data/input/sample_pid.pdf")
 DEBUG_DIR = Path("debug")
 OUTPUT_DIR = Path("data/output")
 FULL_PAGE_IMAGE_PATH = DEBUG_DIR / "page_1_full.png"
-FIXTURE_SECTION_IMAGE_PATH = DEBUG_DIR / "fixture_symbols_section.png"
 
 
 def main() -> None:
     try:
-        log_step("Starting Phase 2: fixture symbols box-line anchored crop")
+        log_step("Starting Phase 2: multi-section legend detection and cropping")
 
         ensure_directory(str(DEBUG_DIR))
         ensure_directory(str(OUTPUT_DIR))
@@ -58,40 +57,65 @@ def main() -> None:
             print(f"Extracted rects: {len(rects)}")
             print(f"Combined line-like segments: {len(line_segments)}")
 
-            heading_matches = find_heading_words(words, "FIXTURE SYMBOLS")
-            anchor = find_fixture_symbols_anchor(heading_matches or words)
+            section_results: dict[str, dict] = {}
 
-            if anchor is None:
-                print("Fixture Symbols heading not found.")
+            for section_name in SECTION_NAMES:
+                print(f"\n--- SECTION: {section_name} ---")
+                anchor = find_section_anchor(words, section_name)
+
+                if anchor is None:
+                    print(f"{section_name}: not found")
+                    section_results[section_name] = {
+                        "found": False,
+                        "anchor": None,
+                        "bbox": None,
+                        "debug_path": None,
+                        "crop": None,
+                    }
+                    continue
+
+                bbox, debug_info = build_section_bbox_from_lines(
+                    anchor,
+                    section_name,
+                    line_segments,
+                    words,
+                    page.width,
+                    page.height,
+                )
+
+                normalized_name = normalize_section_name(section_name)
+                debug_image_path = DEBUG_DIR / f"{normalized_name}.png"
+
+                cropped_page = crop_region(page, bbox)
+                save_cropped_image(cropped_page, str(debug_image_path))
+
+                print(f"{section_name}: found")
+                print(f"Anchor: {anchor}")
+                print(f"BBox: {bbox}")
+                print(f"Output image: {debug_image_path}")
+                print("Nearby line segments considered:", debug_info.get("nearby_line_segments_count", 0))
+
+                section_results[section_name] = {
+                    "found": True,
+                    "anchor": anchor,
+                    "bbox": bbox,
+                    "debug_path": str(debug_image_path),
+                    "crop": cropped_page,
+                }
+
+            fixture_result = section_results.get("FIXTURE SYMBOLS")
+            if not fixture_result or not fixture_result.get("found"):
+                print("\nFixture Symbols not available for parsing.")
                 return
 
-            print(f"Fixture Symbols anchor: {anchor}")
-
-            bbox, debug_info = build_fixture_symbols_bbox_from_lines(
-                anchor,
-                line_segments,
-                words,
-                page.width,
-                page.height,
-            )
-
-            if bbox is None:
-                print("Unable to build Fixture Symbols section bbox from nearby table lines.")
+            fixture_crop = fixture_result.get("crop")
+            if fixture_crop is None:
+                print("\nFixture Symbols crop is missing.")
                 return
 
-            print(
-                "Nearby line segments considered:",
-                debug_info.get("nearby_line_segments_count", 0),
-            )
-            print("Chosen boundaries:", debug_info.get("chosen_boundaries", {}))
-            print(f"Fixture Symbols bbox: {bbox}")
-
-            cropped_page = crop_region(page, bbox)
-            save_cropped_image(cropped_page, str(FIXTURE_SECTION_IMAGE_PATH))
-            log_step(f"Saved fixture symbols section image: {FIXTURE_SECTION_IMAGE_PATH}")
-
-            cropped_words = cropped_page.extract_words() or []
-            fixture_records = parse_fixture_records(cropped_words, bbox)
+            fixture_bbox = fixture_result.get("bbox")
+            cropped_words = fixture_crop.extract_words() or []
+            fixture_records = parse_fixture_records(cropped_words, fixture_bbox)
 
             print("\n--- FIXTURE RECORDS ---\n")
             for record in fixture_records:
@@ -102,6 +126,18 @@ def main() -> None:
 
             if not fixture_records:
                 print("(no fixture records)")
+
+            print("\n--- SECTION SUMMARY ---")
+            for section_name in SECTION_NAMES:
+                result = section_results.get(section_name, {})
+                if not result.get("found"):
+                    print(f"{section_name}: NOT FOUND")
+                    continue
+
+                print(
+                    f"{section_name}: FOUND | anchor={result.get('anchor')} | "
+                    f"bbox={result.get('bbox')} | output={result.get('debug_path')}"
+                )
 
     except FileNotFoundError:
         log_step(f"ERROR: PDF file not found: {PDF_PATH}")
