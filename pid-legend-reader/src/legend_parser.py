@@ -127,6 +127,7 @@ def build_side_row_objects(
                     "words": side_words,
                     "tag": parsed.get("tag"),
                     "description": parsed.get("description"),
+                    "description_words": parsed.get("description_words") or [],
                     "tag_x0": parsed.get("tag_x0"),
                     "desc_x0": parsed.get("desc_x0"),
                 }
@@ -170,10 +171,10 @@ def is_probable_tag(text: str) -> bool:
     return True
 
 
-def split_tag_and_description(words: list[dict[str, Any]]) -> dict[str, str | float | None]:
+def split_tag_and_description(words: list[dict[str, Any]]) -> dict[str, Any]:
     """Detect the first probable tag in a side row and split description text."""
     if not words:
-        return {"tag": None, "description": "", "tag_x0": None, "desc_x0": None}
+        return {"tag": None, "description": "", "description_words": [], "tag_x0": None, "desc_x0": None}
 
     ordered = sorted(words, key=lambda w: float(w.get("x0", 0)))
     texts = [normalize_space(str(word.get("text", ""))) for word in ordered]
@@ -193,6 +194,7 @@ def split_tag_and_description(words: list[dict[str, Any]]) -> dict[str, str | fl
         return {
             "tag": None,
             "description": all_text,
+            "description_words": ordered,
             "tag_x0": None,
             "desc_x0": desc_x0,
         }
@@ -207,6 +209,7 @@ def split_tag_and_description(words: list[dict[str, Any]]) -> dict[str, str | fl
     return {
         "tag": tag_value,
         "description": description,
+        "description_words": description_words,
         "tag_x0": float(tag_word.get("x0", 0)),
         "desc_x0": desc_x0,
     }
@@ -255,7 +258,20 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
 
         if tag:
             if current_record:
-                current_record["description"] = normalize_space(str(current_record.get("description") or ""))
+                ordered_words = sorted(
+                    list(current_record.get("description_words") or []),
+                    key=lambda word: (float(word.get("x0", 0)), round(float(word.get("top", 0)), 1)),
+                )
+                if ordered_words:
+                    current_record["description"] = normalize_space(
+                        " ".join(
+                            str(word.get("text", "")).strip()
+                            for word in ordered_words
+                            if str(word.get("text", "")).strip()
+                        )
+                    )
+                else:
+                    current_record["description"] = normalize_space(str(current_record.get("description") or ""))
                 records.append(
                     {
                         "side": str(current_record.get("side") or ""),
@@ -268,6 +284,7 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
                 "side": str(row.get("side") or ""),
                 "tag": str(tag),
                 "description": description,
+                "description_words": list(row.get("description_words") or []),
                 "desc_x0": row.get("desc_x0"),
                 "last_bottom": float(row.get("bottom", row.get("top", 0))),
             }
@@ -275,13 +292,37 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
 
         if is_continuation_row(current_record, row):
             assert current_record is not None
-            existing_description = str(current_record.get("description") or "")
-            combined = f"{existing_description} {description}" if description else existing_description
-            current_record["description"] = normalize_space(combined)
+            description_words = list(current_record.get("description_words") or [])
+            description_words.extend(list(row.get("description_words") or []))
+            current_record["description_words"] = description_words
+            ordered_words = sorted(
+                description_words,
+                key=lambda word: (float(word.get("x0", 0)), round(float(word.get("top", 0)), 1)),
+            )
+            current_record["description"] = normalize_space(
+                " ".join(
+                    str(word.get("text", "")).strip()
+                    for word in ordered_words
+                    if str(word.get("text", "")).strip()
+                )
+            )
             current_record["last_bottom"] = float(row.get("bottom", row.get("top", 0)))
 
     if current_record:
-        current_record["description"] = normalize_space(str(current_record.get("description") or ""))
+        ordered_words = sorted(
+            list(current_record.get("description_words") or []),
+            key=lambda word: (float(word.get("x0", 0)), round(float(word.get("top", 0)), 1)),
+        )
+        if ordered_words:
+            current_record["description"] = normalize_space(
+                " ".join(
+                    str(word.get("text", "")).strip()
+                    for word in ordered_words
+                    if str(word.get("text", "")).strip()
+                )
+            )
+        else:
+            current_record["description"] = normalize_space(str(current_record.get("description") or ""))
         records.append(
             {
                 "side": str(current_record.get("side") or ""),
