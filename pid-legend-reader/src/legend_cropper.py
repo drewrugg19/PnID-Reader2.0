@@ -19,7 +19,9 @@ def _spans_anchor_band_vertical(segment: dict, anchor_top: float, anchor_bottom:
 
 
 def _normalize_text(value: str) -> str:
-    return " ".join(str(value).upper().split())
+    raw = str(value).upper()
+    stripped = re.sub(r"[^A-Z0-9\s]", " ", raw)
+    return " ".join(stripped.split())
 
 
 def _normalize_token(token: str) -> str:
@@ -36,18 +38,12 @@ def _tokenize(value: str) -> list[str]:
     return [tok for tok in (_normalize_token(part) for part in normalized.split()) if tok]
 
 
-def _has_token_match(candidate_text: str, target_text: str, min_matches: int = 2) -> bool:
-    target_tokens = _tokenize(target_text)
-    candidate_tokens = _tokenize(candidate_text)
+def _is_heading_match(candidate_text: str, target_text: str) -> bool:
+    target_tokens = set(_tokenize(target_text))
+    candidate_tokens = set(_tokenize(candidate_text))
     if not target_tokens or not candidate_tokens:
         return False
-
-    target_set = set(target_tokens)
-    candidate_set = set(candidate_tokens)
-    matched_count = len(target_set & candidate_set)
-
-    required = min(min_matches, len(target_set), len(candidate_set))
-    return matched_count >= required
+    return target_tokens.issubset(candidate_tokens)
 
 
 def _build_line_phrases(words: list[dict]) -> list[dict]:
@@ -95,51 +91,93 @@ def _build_line_phrases(words: list[dict]) -> list[dict]:
     return phrases
 
 
-def find_section_anchor(words, target_text):
-    """
-    Find heading anchor coordinates for a section title using flexible matching.
+def _build_heading_candidates(words: list[dict]) -> list[dict]:
+    candidates: list[dict] = []
 
-    Supports:
-    - full phrase in one word entry
-    - nearby separate words forming multi-word phrases
-    - token-based matching (handles singular/plural differences)
+    for word in words:
+        text = str(word.get("text", "")).strip()
+        if not text:
+            continue
+        candidates.append(
+            {
+                "text": text,
+                "x0": float(word.get("x0", 0.0)),
+                "x1": float(word.get("x1", 0.0)),
+                "top": float(word.get("top", 0.0)),
+                "bottom": float(word.get("bottom", 0.0)),
+            }
+        )
+
+    for phrase in _build_line_phrases(words):
+        text = str(phrase.get("text", "")).strip()
+        if not text:
+            continue
+        candidates.append(
+            {
+                "text": text,
+                "x0": float(phrase.get("x0", 0.0)),
+                "x1": float(phrase.get("x1", 0.0)),
+                "top": float(phrase.get("top", 0.0)),
+                "bottom": float(phrase.get("bottom", 0.0)),
+            }
+        )
+
+    return candidates
+
+
+def find_section_anchor_record(words, section_key: str, target_label: str):
+    """
+    Find heading anchor coordinates for a section title and return a full section record.
     """
     if not words:
         return None
 
-    target = _normalize_text(target_text)
-    if not target:
+    target_tokens = set(_tokenize(target_label))
+    if not target_tokens:
         return None
 
-    for word in words:
-        text = _normalize_text(str(word.get("text", "")))
-        if not text:
+    best_match: dict | None = None
+    best_score: tuple[float, float, float] | None = None
+
+    for candidate in _build_heading_candidates(words):
+        candidate_text = str(candidate.get("text", ""))
+        if not _is_heading_match(candidate_text, target_label):
             continue
 
-        text_tokens = _tokenize(text)
-        if target in text or _has_token_match(text, target) or (text in target and len(text_tokens) >= 2):
-            return {
-                "x0": float(word["x0"]),
-                "top": float(word["top"]),
-                "x1": float(word["x1"]),
-                "bottom": float(word["bottom"]),
-            }
+        candidate_tokens = set(_tokenize(candidate_text))
+        extra_tokens = len(candidate_tokens - target_tokens)
+        width = float(candidate.get("x1", 0.0)) - float(candidate.get("x0", 0.0))
+        top = float(candidate.get("top", 0.0))
+        score = (float(extra_tokens), width, top)
 
-    phrase_candidates = _build_line_phrases(words)
-    for candidate in phrase_candidates:
-        candidate_text = _normalize_text(candidate.get("text", ""))
-        if not candidate_text:
-            continue
+        if best_score is None or score < best_score:
+            best_match = candidate
+            best_score = score
 
-        if target in candidate_text or _has_token_match(candidate_text, target):
-            return {
-                "x0": float(candidate["x0"]),
-                "top": float(candidate["top"]),
-                "x1": float(candidate["x1"]),
-                "bottom": float(candidate["bottom"]),
-            }
+    if best_match is None:
+        return None
 
-    return None
+    anchor = {
+        "x0": float(best_match["x0"]),
+        "top": float(best_match["top"]),
+        "x1": float(best_match["x1"]),
+        "bottom": float(best_match["bottom"]),
+    }
+
+    return {
+        "section_key": section_key,
+        "target_label": target_label,
+        "matched_text": str(best_match.get("text", "")),
+        "anchor": anchor,
+    }
+
+
+def find_section_anchor(words, target_text):
+    """Backward-compatible anchor finder returning only anchor bbox."""
+    record = find_section_anchor_record(words, target_text, target_text)
+    if record is None:
+        return None
+    return record.get("anchor")
 
 
 def filter_words_between_xbounds(words, x0, x1, top=None, bottom=None):
