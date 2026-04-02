@@ -5,10 +5,10 @@ from pathlib import Path
 from legend_cropper import (
     build_fixture_symbols_bbox_from_lines,
     crop_region,
-    extract_crop_text,
     find_fixture_symbols_anchor,
     save_cropped_image,
 )
+from legend_parser import parse_fixture_rows
 from pdf_reader import (
     combine_line_like_objects,
     extract_lines,
@@ -90,12 +90,17 @@ def main() -> None:
             save_cropped_image(cropped_page, str(FIXTURE_SECTION_IMAGE_PATH))
             log_step(f"Saved fixture symbols section image: {FIXTURE_SECTION_IMAGE_PATH}")
 
-            cropped_text = extract_crop_text(cropped_page)
-            print("Extracted text from fixture symbols crop:")
-            if cropped_text:
-                print(cropped_text)
-            else:
-                print("(no text found)")
+            cropped_words = cropped_page.extract_words() or []
+            parsed_rows = parse_fixture_rows(cropped_words, bbox)
+
+            print("\n--- PARSED FIXTURE ROWS ---\n")
+            for row in parsed_rows:
+                side = row["side"].upper()
+                text = row["text"]
+                print(f"[{side}] {text}")
+
+            if not parsed_rows:
+                print("(no parsed rows)")
 
     except FileNotFoundError:
         log_step(f"ERROR: PDF file not found: {PDF_PATH}")
