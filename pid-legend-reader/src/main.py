@@ -25,17 +25,23 @@ def run_manual_valve_extraction_test() -> list[dict[str, str]]:
 
         print("\n--- BV WORD DEBUG ---")
         for word in words:
-            if "BV" in word.get("text", ""):
+            if "BV" in word.get("text", "").upper():
+                print(word)
+
+        enable_sample_word_debug = True
+        if enable_sample_word_debug:
+            print("\n--- SAMPLE WORD DEBUG ---")
+            for word in words[:300]:
                 print(word)
 
         TEST_VALVES = [
             {
                 "type": "BALL VALVE",
-                "bbox": (100.0, 100.0, 160.0, 140.0),
+                "bbox": (0.0, 0.0, 0.0, 0.0),  # PUT_REAL_VALUES_HERE
             },
             {
                 "type": "BUTTERFLY VALVE",
-                "bbox": (220.0, 220.0, 280.0, 260.0),
+                "bbox": (0.0, 0.0, 0.0, 0.0),  # PUT_REAL_VALUES_HERE
             },
         ]
 
@@ -51,6 +57,7 @@ def run_manual_valve_extraction_test() -> list[dict[str, str]]:
                 valve_type=valve_type,
                 debug=True,
             )
+
             record = build_valve_record(
                 valve_id=valve_id,
                 valve_type=valve_type,

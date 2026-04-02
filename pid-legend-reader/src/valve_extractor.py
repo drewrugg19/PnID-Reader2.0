@@ -54,19 +54,24 @@ def extract_nearby_valve_id(
 
     normalized_type = normalize_text(valve_type)
 
-    search_x0 = float(x0) - 80.0
-    search_x1 = float(x1) + 80.0
-
     if normalized_type == "BALL VALVE":
+        search_x0 = float(x0) - 80.0
+        search_x1 = float(x1) + 80.0
         search_top = float(top) - 120.0
         search_bottom = float(top) - 5.0
     elif normalized_type == "BUTTERFLY VALVE":
+        search_x0 = float(x0) - 80.0
+        search_x1 = float(x1) + 80.0
         search_top = float(bottom) + 5.0
         search_bottom = float(bottom) + 140.0
     else:
         if debug:
-            print("--- VALVE ID DEBUG ---")
-            print(f"Unsupported valve type: {valve_type}")
+            print("\n--- VALVE ID DEBUG ---")
+            print(f"Valve Type: {valve_type}")
+            print(f"Valve BBox: {valve_bbox}")
+            print("Search Region: (unsupported valve type)")
+            print("Words Found: 0")
+            print("Final Joined ID: ")
         return ""
 
     nearby_words = extract_words_in_region(words, search_x0, search_top, search_x1, search_bottom)
@@ -80,13 +85,15 @@ def extract_nearby_valve_id(
     normalized_id = normalize_text(joined)
 
     if debug:
-        print("--- VALVE ID DEBUG ---")
+        print("\n--- VALVE ID DEBUG ---")
         print(f"Valve Type: {normalized_type}")
-        print(f"Valve BBox: {valve_bbox}")
+        print(f"Valve BBox: ({x0}, {top}, {x1}, {bottom})")
         print(f"Search Region: ({search_x0}, {search_top}, {search_x1}, {search_bottom})")
         print(f"Words Found: {len(sorted_words)}")
+
         for word in sorted_words:
             print(word)
+
         print(f"Final Joined ID: {normalized_id}")
 
     return normalized_id
