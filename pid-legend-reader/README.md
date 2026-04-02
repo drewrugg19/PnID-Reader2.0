@@ -2,19 +2,23 @@
 
 This repository is currently in **Phase 2**.
 
-## What Phase 2 Does
+## What This Phase Does
 
-Phase 2 is intentionally small and focused on manual debugging of one legend box region:
+This phase is a baby-step workflow focused only on dynamically locating and cropping the **Fixture Symbols** section.
 
-1. Open a PDF file
-2. Read page 1
-3. Save a full-page debug image
-4. Crop one manually defined bounding box (bbox)
-5. Save the cropped image
-6. Extract text from the cropped region
-7. Print clear debug output to the console
+The script now:
 
-This phase does **not** include OCR, automatic detection, symbol recognition, OpenCV, or full legend parsing.
+1. Opens the PDF
+2. Reads page 1
+3. Saves a full-page debug image
+4. Extracts word-level data from the page
+5. Searches for the **"FIXTURE SYMBOLS"** heading text dynamically
+6. Uses the heading coordinates as an anchor
+7. Builds a reasonable dynamic crop region around the heading and section below
+8. Saves the cropped section image
+9. Extracts and prints text from the cropped region
+
+This phase does **not** include OCR, OpenCV, symbol recognition, machine learning, row parsing, or full legend parsing.
 
 ## Input PDF
 
@@ -35,14 +39,14 @@ python src/main.py
 Running the script creates:
 
 - `debug/page_1_full.png`
-- `debug/page_1_crop.png`
+- `debug/fixture_symbols_section.png`
 
 The script also ensures these folders exist:
 
 - `debug/`
 - `data/output/`
 
-## Manual BBox Note
+## Status Note
 
-The bbox values are **manually set for now** (for example `(100, 100, 350, 250)`).
-They are expected to be tuned as needed in later steps.
+This is still an intermediate phase before row-by-row legend parsing.
+The current goal is only dynamic heading-based anchoring and section cropping for **Fixture Symbols**.
