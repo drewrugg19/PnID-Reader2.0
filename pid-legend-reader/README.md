@@ -1,10 +1,10 @@
 # P&ID Legend Reader
 
-This repository is currently in **Phase 2**.
+This repository is currently in **Phase 2** with an added **valve extraction test path**.
 
 ## What This Phase Does
 
-This phase now supports reusable multi-section legend detection and cropping from page 1.
+This phase supports reusable multi-section legend detection and cropping from page 1.
 
 The script now:
 
@@ -20,9 +20,38 @@ The script now:
    - **VALVE SYMBOLS**
 8. Builds each section crop box from nearby line borders with word-based bottom estimation
 9. Saves one debug crop image per detected section
-10. Continues full parsing only for **Fixture Symbols** records
+10. Parses section records in the existing legend path
+11. Runs a separate valve extraction test flow from drawing symbol bboxes
 
-This phase does **not** include OCR, OpenCV, symbol recognition, machine learning, full Piping Elements parsing, or full Valve Symbols parsing.
+## New Valve Extraction Path (Drawing Symbols)
+
+This phase adds a new, separate path for valve extraction from the **actual drawing symbols** (not legend parsing).
+
+### Currently Supported Valve Types
+
+- **BALL VALVE**
+- **BUTTERFLY VALVE**
+
+### Current Valve ID Rule
+
+Valve IDs are searched relative to symbol position:
+
+- **BALL VALVE**: search text **above** the symbol bbox
+- **BUTTERFLY VALVE**: search text **below** the symbol bbox
+
+### Current Output Shape
+
+Each extracted valve is returned as:
+
+```json
+{
+  "valve_id": "",
+  "valve_type": "BALL VALVE",
+  "drawing_number": ""
+}
+```
+
+`drawing_number` is a placeholder in this phase and will be extracted later.
 
 ## Input PDF
 
@@ -55,5 +84,6 @@ The script also ensures these folders exist:
 ## Status Note
 
 - Section detection and cropping are implemented for Fixture Symbols, Piping Elements, and Valve Symbols.
-- **Only Fixture Symbols is fully parsed** at this stage.
-- Piping Elements and Valve Symbols are currently cropped/debugged for the next phase.
+- The new valve extraction workflow is now present:
+  `symbol bbox -> valve type -> nearby ID text -> structured record`.
+- This phase does **not** add OCR, machine learning, or broad symbol automation.
