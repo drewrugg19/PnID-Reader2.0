@@ -246,15 +246,54 @@ def sort_description_words(words: list[dict[str, Any]], line_tolerance: float = 
     return ordered_words
 
 
+def group_description_words_into_lines(
+    words: list[dict[str, Any]], y_tolerance: float = 5
+) -> list[list[dict[str, Any]]]:
+    """Group description words into visual lines, top-to-bottom and left-to-right."""
+    if not words:
+        return []
+
+    words_by_top = sorted(words, key=lambda word: float(word.get("top", 0)))
+    lines: list[list[dict[str, Any]]] = []
+
+    for word in words_by_top:
+        word_top = float(word.get("top", 0))
+        assigned = False
+
+        for line in lines:
+            line_avg_top = sum(float(item.get("top", 0)) for item in line) / len(line)
+            if abs(word_top - line_avg_top) <= y_tolerance:
+                line.append(word)
+                assigned = True
+                break
+
+        if not assigned:
+            lines.append([word])
+
+    lines.sort(key=lambda line: sum(float(item.get("top", 0)) for item in line) / len(line))
+    for line in lines:
+        line.sort(key=lambda word: float(word.get("x0", 0)))
+
+    return lines
+
+
 def build_description_from_words(words: list[dict[str, Any]]) -> str:
-    """Build normalized description text from ordered word objects."""
-    return normalize_space(
-        " ".join(
-            str(word.get("text", "")).strip()
-            for word in words
-            if str(word.get("text", "")).strip()
+    """Build normalized description text preserving visual line structure."""
+    lines = group_description_words_into_lines(words)
+    line_texts: list[str] = []
+
+    for line in lines:
+        text = normalize_space(
+            " ".join(
+                str(word.get("text", "")).strip()
+                for word in line
+                if str(word.get("text", "")).strip()
+            )
         )
-    )
+        if text:
+            line_texts.append(text)
+
+    return normalize_space(" ".join(line_texts))
 
 
 def is_continuation_row(
@@ -300,9 +339,9 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
 
         if tag:
             if current_record:
-                ordered_words = sort_description_words(list(current_record.get("description_words") or []))
-                if ordered_words:
-                    current_record["description"] = build_description_from_words(ordered_words)
+                description_words = list(current_record.get("description_words") or [])
+                if description_words:
+                    current_record["description"] = build_description_from_words(description_words)
                 else:
                     current_record["description"] = normalize_space(str(current_record.get("description") or ""))
                 records.append(
@@ -328,14 +367,13 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
             description_words = list(current_record.get("description_words") or [])
             description_words.extend(list(row.get("description_words") or []))
             current_record["description_words"] = description_words
-            ordered_words = sort_description_words(description_words)
-            current_record["description"] = build_description_from_words(ordered_words)
+            current_record["description"] = build_description_from_words(description_words)
             current_record["last_bottom"] = float(row.get("bottom", row.get("top", 0)))
 
     if current_record:
-        ordered_words = sort_description_words(list(current_record.get("description_words") or []))
-        if ordered_words:
-            current_record["description"] = build_description_from_words(ordered_words)
+        description_words = list(current_record.get("description_words") or [])
+        if description_words:
+            current_record["description"] = build_description_from_words(description_words)
         else:
             current_record["description"] = normalize_space(str(current_record.get("description") or ""))
         records.append(
