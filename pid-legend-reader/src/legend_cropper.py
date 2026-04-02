@@ -111,13 +111,13 @@ def find_section_anchor(words, target_text):
     if not target:
         return None
 
-    # 1) Direct/partial check against individual words.
     for word in words:
         text = _normalize_text(str(word.get("text", "")))
         if not text:
             continue
 
-        if target in text or text in target or _has_token_match(text, target):
+        text_tokens = _tokenize(text)
+        if target in text or _has_token_match(text, target) or (text in target and len(text_tokens) >= 2):
             return {
                 "x0": float(word["x0"]),
                 "top": float(word["top"]),
@@ -125,7 +125,6 @@ def find_section_anchor(words, target_text):
                 "bottom": float(word["bottom"]),
             }
 
-    # 2) Build multi-word candidate phrases from nearby words on same line.
     phrase_candidates = _build_line_phrases(words)
     for candidate in phrase_candidates:
         candidate_text = _normalize_text(candidate.get("text", ""))
@@ -199,23 +198,108 @@ def _find_nearby_table_lines(anchor, line_segments, page_width, page_height, sec
     left_border = max(left_candidates, key=lambda seg: float(seg.get("x0", 0.0)), default=None)
     right_border = min(right_candidates, key=lambda seg: float(seg.get("x0", 0.0)), default=None)
 
-    top_candidates = [
-        seg
-        for seg in horizontals
-        if float(seg.get("top", 0.0)) <= anchor_top + 2.0
-        and float(seg.get("x0", 0.0)) <= anchor_x0 + 15.0
-        and float(seg.get("x1", 0.0)) >= anchor_x1 - 15.0
-    ]
-
-    top_border = max(top_candidates, key=lambda seg: float(seg.get("top", 0.0)), default=None)
-
     return {
         "local_window": {"x0": local_x0, "x1": local_x1, "top": local_top, "bottom": local_bottom},
         "nearby_segments": local_segments,
+        "horizontals": horizontals,
         "left_border": left_border,
         "right_border": right_border,
-        "top_border": top_border,
     }
+
+
+def _select_horizontal_line(
+    horiz_segments: list[dict],
+    target_y: float,
+    min_y: float | None,
+    max_y: float | None,
+    preferred_x0: float,
+    preferred_x1: float,
+    page_width: float,
+):
+    candidates: list[tuple[float, float, dict]] = []
+
+    for seg in horiz_segments:
+        y = float(seg.get("top", 0.0))
+        if min_y is not None and y < min_y:
+            continue
+        if max_y is not None and y > max_y:
+            continue
+
+        sx0 = float(seg.get("x0", 0.0))
+        sx1 = float(seg.get("x1", 0.0))
+        overlap = max(0.0, min(sx1, preferred_x1) - max(sx0, preferred_x0))
+        preferred_width = max(1.0, preferred_x1 - preferred_x0)
+        coverage = overlap / preferred_width
+
+        fullish_span_bonus = 0.0
+        if sx0 <= preferred_x0 + 12.0 and sx1 >= preferred_x1 - 12.0:
+            fullish_span_bonus = 0.75
+        elif sx0 <= 8.0 and sx1 >= page_width - 8.0:
+            fullish_span_bonus = 0.75
+
+        score = abs(y - target_y) - (coverage * 25.0) - fullish_span_bonus
+        candidates.append((score, abs(y - target_y), seg))
+
+    if not candidates:
+        return None
+
+    _, _, best = min(candidates, key=lambda item: (item[0], item[1]))
+    return best
+
+
+def find_section_top_line(anchor, line_segments, page_width):
+    anchor_top = float(anchor["top"])
+    preferred_x0 = max(0.0, float(anchor["x0"]) - 260.0)
+    preferred_x1 = min(float(page_width), float(anchor["x1"]) + 260.0)
+
+    horizontals = [
+        seg
+        for seg in line_segments
+        if seg.get("orientation") == "horizontal" and _segment_length(seg) >= 40.0
+    ]
+
+    best = _select_horizontal_line(
+        horizontals,
+        target_y=anchor_top,
+        min_y=max(0.0, anchor_top - 60.0),
+        max_y=anchor_top + 4.0,
+        preferred_x0=preferred_x0,
+        preferred_x1=preferred_x1,
+        page_width=float(page_width),
+    )
+
+    if best is None:
+        return None
+    return float(best.get("top", 0.0))
+
+
+def find_section_bottom_line(current_anchor, next_anchor, line_segments, page_width):
+    if next_anchor is None:
+        return None
+
+    next_top = float(next_anchor["top"])
+    preferred_x0 = max(0.0, float(next_anchor["x0"]) - 260.0)
+    preferred_x1 = min(float(page_width), float(next_anchor["x1"]) + 260.0)
+
+    horizontals = [
+        seg
+        for seg in line_segments
+        if seg.get("orientation") == "horizontal" and _segment_length(seg) >= 40.0
+    ]
+
+    best = _select_horizontal_line(
+        horizontals,
+        target_y=next_top,
+        min_y=max(0.0, float(current_anchor["bottom"]) - 5.0),
+        max_y=next_top + 4.0,
+        preferred_x0=preferred_x0,
+        preferred_x1=preferred_x1,
+        page_width=float(page_width),
+    )
+
+    if best is None:
+        return None
+    return float(best.get("top", 0.0))
 
 
 def find_section_words(words, anchor, page_width, page_height, section_name, x0=None, x1=None):
@@ -244,14 +328,21 @@ def find_section_words(words, anchor, page_width, page_height, section_name, x0=
     )
 
 
-def build_section_bbox_from_lines(anchor, section_name, line_segments, words, page_width, page_height):
-    """Build section bbox using nearby table lines + local words for bottom estimation."""
+def build_section_bbox_from_lines(
+    anchor,
+    next_anchor,
+    section_name,
+    line_segments,
+    words,
+    page_width,
+    page_height,
+):
+    """Build section bbox using divider lines and neighboring section anchors."""
     settings = get_section_settings(section_name)
     nearby = _find_nearby_table_lines(anchor, line_segments, page_width, page_height, section_name)
 
     left_border = nearby.get("left_border")
     right_border = nearby.get("right_border")
-    top_border = nearby.get("top_border")
 
     left = float(left_border["x0"]) if left_border else max(0.0, float(anchor["x0"]) - 20.0)
     right = (
@@ -259,29 +350,38 @@ def build_section_bbox_from_lines(anchor, section_name, line_segments, words, pa
         if right_border
         else min(float(page_width), left + float(settings["fallback_width"]))
     )
-    top = float(top_border["top"]) if top_border else max(0.0, float(anchor["top"]) - 12.0)
 
     if right <= left:
         right = min(float(page_width), left + float(settings["fallback_width"]))
 
-    section_words = find_section_words(
-        words,
-        anchor,
-        page_width,
-        page_height,
-        section_name,
-        x0=left,
-        x1=right,
-    )
+    top_line = find_section_top_line(anchor, line_segments, page_width)
+    top = top_line if top_line is not None else max(0.0, float(anchor["top"]) - 12.0)
 
-    words_below_heading = [w for w in section_words if float(w.get("top", 0.0)) >= float(anchor["bottom"]) - 2.0]
-    words_for_bottom = words_below_heading if words_below_heading else section_words
-
-    if words_for_bottom:
-        content_bottom = max(float(w.get("bottom", 0.0)) for w in words_for_bottom)
-        bottom = min(float(page_height), content_bottom + float(settings["bottom_padding"]))
+    bottom_line = find_section_bottom_line(anchor, next_anchor, line_segments, page_width)
+    used_word_bottom = False
+    if bottom_line is not None:
+        bottom = bottom_line
     else:
-        bottom = min(float(page_height), float(anchor["bottom"]) + float(settings["fallback_bottom"]))
+        section_words = find_section_words(
+            words,
+            anchor,
+            page_width,
+            page_height,
+            section_name,
+            x0=left,
+            x1=right,
+        )
+
+        words_below_heading = [w for w in section_words if float(w.get("top", 0.0)) >= float(anchor["bottom"]) - 2.0]
+        words_for_bottom = words_below_heading if words_below_heading else section_words
+
+        if words_for_bottom:
+            content_bottom = max(float(w.get("bottom", 0.0)) for w in words_for_bottom)
+            bottom = min(float(page_height), content_bottom + float(settings["bottom_padding"]))
+            used_word_bottom = True
+        else:
+            bottom = min(float(page_height), float(anchor["bottom"]) + float(settings["fallback_bottom"]))
+            used_word_bottom = True
 
     if bottom <= top:
         bottom = min(float(page_height), top + 120.0)
@@ -305,8 +405,9 @@ def build_section_bbox_from_lines(anchor, section_name, line_segments, words, pa
         },
         "left_border": left_border,
         "right_border": right_border,
-        "top_border": top_border,
-        "section_words_for_bottom_count": len(words_for_bottom),
+        "top_line": top_line,
+        "bottom_line": bottom_line,
+        "used_word_bottom": used_word_bottom,
     }
 
     return bbox, debug_info
@@ -343,6 +444,7 @@ def find_fixture_section_words(words, anchor, page_width, page_height, x0=None, 
 def build_fixture_symbols_bbox_from_lines(anchor, line_segments, words, page_width, page_height):
     return build_section_bbox_from_lines(
         anchor,
+        None,
         "FIXTURE SYMBOLS",
         line_segments,
         words,

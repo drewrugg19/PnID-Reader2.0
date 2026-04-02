@@ -59,23 +59,24 @@ def main() -> None:
 
             section_results: dict[str, dict] = {}
 
+            found_sections: list[dict] = []
             for section_name in SECTION_NAMES:
-                print(f"\n--- SECTION: {section_name} ---")
                 anchor = find_section_anchor(words, section_name)
+                if anchor is not None:
+                    found_sections.append({"section_name": section_name, "anchor": anchor})
 
-                if anchor is None:
-                    print(f"{section_name}: not found")
-                    section_results[section_name] = {
-                        "found": False,
-                        "anchor": None,
-                        "bbox": None,
-                        "debug_path": None,
-                        "crop": None,
-                    }
-                    continue
+            found_sections.sort(key=lambda item: float(item["anchor"]["top"]))
+
+            for i, current in enumerate(found_sections):
+                section_name = current["section_name"]
+                anchor = current["anchor"]
+                next_anchor = found_sections[i + 1]["anchor"] if i + 1 < len(found_sections) else None
+
+                print(f"\n--- SECTION: {section_name} ---")
 
                 bbox, debug_info = build_section_bbox_from_lines(
                     anchor,
+                    next_anchor,
                     section_name,
                     line_segments,
                     words,
@@ -91,6 +92,8 @@ def main() -> None:
 
                 print(f"{section_name}: found")
                 print(f"Anchor: {anchor}")
+                print(f"Top line: {debug_info.get('top_line')}")
+                print(f"Bottom line: {debug_info.get('bottom_line')}")
                 print(f"BBox: {bbox}")
                 print(f"Output image: {debug_image_path}")
                 print("Nearby line segments considered:", debug_info.get("nearby_line_segments_count", 0))
@@ -101,7 +104,23 @@ def main() -> None:
                     "bbox": bbox,
                     "debug_path": str(debug_image_path),
                     "crop": cropped_page,
+                    "top_line": debug_info.get("top_line"),
+                    "bottom_line": debug_info.get("bottom_line"),
                 }
+
+            for section_name in SECTION_NAMES:
+                if section_name not in section_results:
+                    print(f"\n--- SECTION: {section_name} ---")
+                    print(f"{section_name}: not found")
+                    section_results[section_name] = {
+                        "found": False,
+                        "anchor": None,
+                        "bbox": None,
+                        "debug_path": None,
+                        "crop": None,
+                        "top_line": None,
+                        "bottom_line": None,
+                    }
 
             fixture_result = section_results.get("FIXTURE SYMBOLS")
             if not fixture_result or not fixture_result.get("found"):
@@ -136,6 +155,7 @@ def main() -> None:
 
                 print(
                     f"{section_name}: FOUND | anchor={result.get('anchor')} | "
+                    f"top_line={result.get('top_line')} | bottom_line={result.get('bottom_line')} | "
                     f"bbox={result.get('bbox')} | output={result.get('debug_path')}"
                 )
 
