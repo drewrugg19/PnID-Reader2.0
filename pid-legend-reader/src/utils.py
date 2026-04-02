@@ -3,16 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def log(message: str) -> None:
-    """Simple logging wrapper."""
-    print(f"[pid-legend-reader] {message}")
+def ensure_directory(path: str) -> None:
+    """Create a directory if it does not exist."""
+    Path(path).mkdir(parents=True, exist_ok=True)
 
 
-def project_root() -> Path:
-    """Return the project root directory."""
-    return Path(__file__).resolve().parent.parent
-
-
-def input_path(filename: str) -> Path:
-    """Build a path to a file in data/input."""
-    return project_root() / "data" / "input" / filename
+def log_step(message: str) -> None:
+    """Print a clear step message for debugging."""
+    print(f"[STEP] {message}")
