@@ -8,7 +8,7 @@ from legend_cropper import (
     find_section_anchor_record,
     save_cropped_image,
 )
-from legend_parser import parse_fixture_records, parse_section
+from legend_parser import parse_section
 from pdf_reader import (
     combine_line_like_objects,
     extract_lines,
@@ -149,20 +149,15 @@ def main() -> None:
             all_section_records: list[dict[str, str]] = []
 
             fixture_result = section_results.get("fixture_symbols")
-            fixture_records: list[dict[str, str | None]] = []
+            fixture_records: list[dict[str, str]] = []
             if fixture_result and fixture_result.get("found") and fixture_result.get("crop") is not None:
-                fixture_crop = fixture_result.get("crop")
-                fixture_bbox = fixture_result.get("bbox")
-                cropped_words = fixture_crop.extract_words() or []
-                fixture_records = parse_fixture_records(cropped_words, fixture_bbox)
-                all_section_records.extend(parse_section(cropped_words, "fixture"))
+                fixture_words = fixture_result["crop"].extract_words() or []
+                fixture_records = parse_section(fixture_words, "fixture")
+                all_section_records.extend(fixture_records)
 
             print("\n--- FIXTURE RECORDS ---\n")
             for record in fixture_records:
-                side = str(record.get("side", "")).upper() or "UNKNOWN"
-                tag = str(record.get("tag") or "UNKNOWN")
-                description = " ".join(str(record.get("description") or "").split()).strip()
-                print(f"[{side}] {tag} -> {description}")
+                print(f"[L] {record['left']} -> {record['right']}")
             if not fixture_records:
                 print("(no fixture records)")
 

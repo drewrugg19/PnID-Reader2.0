@@ -401,56 +401,51 @@ def _median(values: list[float]) -> float:
     return (ordered[mid - 1] + ordered[mid]) / 2
 
 
-def build_section_rows(
-    words: list[dict[str, Any]], y_tolerance: float = 5, header_cutoff: float = 40
-) -> list[dict[str, list[dict[str, Any]]]]:
-    grouped_rows = group_words_into_rows(words, y_tolerance=y_tolerance)
+def split_row_left_cluster(
+    row_words: list[dict[str, Any]], cluster_gap_threshold: float = 20
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split one row into left cluster and right words using first-word proximity."""
+    ordered = sorted(row_words, key=lambda word: float(word.get("x0", 0)))
+    if not ordered:
+        return [], []
 
-    midpoints = [
-        (float(word.get("x0", 0)) + float(word.get("x1", 0))) / 2
-        for word in words
-    ]
-    split_x = _median(midpoints)
+    left_cluster = [ordered[0]]
+    first_word_right_edge = float(ordered[0].get("x1", ordered[0].get("x0", 0)))
 
-    rows: list[dict[str, list[dict[str, Any]]]] = []
+    for word in ordered[1:]:
+        word_x0 = float(word.get("x0", 0))
+        if word_x0 - first_word_right_edge <= cluster_gap_threshold:
+            left_cluster.append(word)
+            continue
+        break
+
+    right_words = ordered[len(left_cluster) :]
+    return left_cluster, right_words
+
+
+def parse_section(words: list[dict[str, Any]], section_type: str) -> list[dict[str, str]]:
+    normalized_section = normalize_space(section_type).lower()
+    if normalized_section not in {"fixture", "piping", "valve"}:
+        return []
+
+    grouped_rows = group_words_into_rows(words)
+    records: list[dict[str, str]] = []
+
     for row in grouped_rows:
         if not row:
             continue
 
         row_top = min(float(word.get("top", 0)) for word in row)
-        if row_top <= header_cutoff:
+        if row_top <= 40:
             continue
 
-        left_words, right_words = split_words_by_side(row, split_x)
-        rows.append({"left_words": left_words, "right_words": right_words})
+        row_text_upper = build_row_text(row).upper()
+        if "FIXTURE" in row_text_upper and "SYMBOL" in row_text_upper:
+            continue
 
-    return rows
-
-
-def parse_section(words: list[dict[str, Any]], section_type: str) -> list[dict[str, str]]:
-    normalized_section = normalize_space(section_type).lower()
-
-    if normalized_section == "fixture":
-        fixture_records = parse_fixture_records(words, section_bbox=(0, 0, 0, 0))
-        return [
-            {
-                "left": normalize_space(str(record.get("tag") or "")),
-                "right": normalize_space(str(record.get("description") or "")),
-                "section": "fixture",
-            }
-            for record in fixture_records
-            if normalize_space(str(record.get("tag") or "")) and normalize_space(str(record.get("description") or ""))
-        ]
-
-    if normalized_section not in {"piping", "valve"}:
-        return []
-
-    rows = build_section_rows(words)
-    records: list[dict[str, str]] = []
-
-    for row in rows:
-        left = normalize_space(build_row_text(row.get("left_words", [])))
-        right = normalize_space(build_row_text(row.get("right_words", [])))
+        left_words, right_words = split_row_left_cluster(row)
+        left = normalize_space(build_row_text(left_words))
+        right = normalize_space(build_row_text(right_words))
 
         if not left or not right:
             continue
