@@ -8,7 +8,7 @@ from legend_cropper import (
     find_fixture_symbols_anchor,
     save_cropped_image,
 )
-from legend_parser import parse_fixture_rows
+from legend_parser import parse_fixture_records
 from pdf_reader import (
     combine_line_like_objects,
     extract_lines,
@@ -91,16 +91,17 @@ def main() -> None:
             log_step(f"Saved fixture symbols section image: {FIXTURE_SECTION_IMAGE_PATH}")
 
             cropped_words = cropped_page.extract_words() or []
-            parsed_rows = parse_fixture_rows(cropped_words, bbox)
+            fixture_records = parse_fixture_records(cropped_words, bbox)
 
-            print("\n--- PARSED FIXTURE ROWS ---\n")
-            for row in parsed_rows:
-                side = row["side"].upper()
-                text = row["text"]
-                print(f"[{side}] {text}")
+            print("\n--- FIXTURE RECORDS ---\n")
+            for record in fixture_records:
+                side = str(record.get("side", "")).upper() or "UNKNOWN"
+                tag = str(record.get("tag") or "UNKNOWN")
+                description = str(record.get("description") or "").strip()
+                print(f"[{side}] {tag} -> {description}")
 
-            if not parsed_rows:
-                print("(no parsed rows)")
+            if not fixture_records:
+                print("(no fixture records)")
 
     except FileNotFoundError:
         log_step(f"ERROR: PDF file not found: {PDF_PATH}")
