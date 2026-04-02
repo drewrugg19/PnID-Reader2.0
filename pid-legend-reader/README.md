@@ -10,10 +10,15 @@ This phase is focused on debugging valve ID extraction against the **actual P&ID
 - Does **not** modify legend parsing logic
 - Keeps this valve extraction test path isolated
 
-## Supported Valve Types
+## Calibration Goal (Manual BBox Tuning)
 
-- **BALL VALVE**
-- **BUTTERFLY VALVE**
+This step is strictly for calibrating manual valve bounding boxes on the actual P&ID page.
+
+1. Run `python src/main.py`
+2. Review the `--- BV WORD DEBUG ---` output to locate real valve ID words and their coordinates
+3. (Optional) Review `--- SAMPLE WORD DEBUG ---` output for additional page coordinate context
+4. Update `TEST_VALVES` bbox values in `src/main.py` so each valve symbol is positioned correctly relative to nearby ID text
+5. Re-run until the valve ID extraction debug output returns expected IDs
 
 ## Valve ID Search Direction Rules
 
@@ -22,16 +27,7 @@ This phase is focused on debugging valve ID extraction against the **actual P&ID
 
 ## Workflow Being Proven
 
-`valve bbox -> valve type -> nearby ID text -> structured valve record`
-
-## Debugging Objective
-
-The goal of this phase is to tune manual valve bboxes on the real drawing:
-
-1. Print all page words containing `BV`
-2. Inspect coordinates from debug output
-3. Adjust `TEST_VALVES` bbox values in `src/main.py`
-4. Re-run and verify extracted valve IDs
+`manual valve bbox -> valve type -> nearby ID text in search region -> structured valve record`
 
 ## Output Record Shape
 
@@ -53,6 +49,6 @@ python src/main.py
 
 ## Notes
 
-- `src/main.py` contains a dedicated valve extraction debug flow for the actual drawing.
-- Use the `--- BV WORD DEBUG ---` output to tune manual test bounding boxes.
-- Keep this phase simple and manual before adding any auto-detection.
+- `src/main.py` contains a dedicated valve extraction debug flow for the actual drawing only.
+- The valve flow intentionally avoids legend parsing in this phase.
+- Keep this phase simple and manual before adding any valve auto-detection.
