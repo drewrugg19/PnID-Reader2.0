@@ -58,17 +58,14 @@ def find_fixture_symbols_anchor(words):
 
 
 def find_fixture_section_words(words, anchor, page_width, page_height):
-    """Find words likely belonging to the Fixture Symbols section below the heading."""
+    """Find words in a tight local window around the Fixture Symbols heading anchor."""
     if anchor is None:
         return []
 
-    horizontal_margin = max(160.0, page_width * 0.2)
-    search_x0 = max(0.0, float(anchor["x0"]) - horizontal_margin)
-    search_x1 = min(float(page_width), float(anchor["x1"]) + horizontal_margin)
-
-    search_top = min(float(page_height), float(anchor["bottom"]) + 5.0)
-    vertical_depth = max(180.0, page_height * 0.35)
-    search_bottom = min(float(page_height), search_top + vertical_depth)
+    search_x0 = max(0.0, float(anchor["x0"]) - 450.0)
+    search_x1 = min(float(page_width), float(anchor["x1"]) + 550.0)
+    search_top = max(0.0, float(anchor["top"]) - 40.0)
+    search_bottom = min(float(page_height), float(anchor["bottom"]) + 700.0)
 
     return filter_words_in_region(
         words,
@@ -77,6 +74,26 @@ def find_fixture_section_words(words, anchor, page_width, page_height):
         top=search_top,
         bottom=search_bottom,
     )
+
+
+def filter_out_heading_words(section_words, anchor):
+    """Remove words that overlap the heading area to avoid double-counting heading text."""
+    if not section_words or anchor is None:
+        return section_words
+
+    heading_top = float(anchor["top"]) - 2.0
+    heading_bottom = float(anchor["bottom"]) + 2.0
+
+    filtered = []
+    for word in section_words:
+        word_top = float(word["top"])
+        word_bottom = float(word["bottom"])
+
+        overlaps_heading_band = not (word_bottom < heading_top or word_top > heading_bottom)
+        if not overlaps_heading_band:
+            filtered.append(word)
+
+    return filtered
 
 
 def build_bbox_from_words(section_words, page_width, page_height, padding=20):
@@ -98,11 +115,16 @@ def build_bbox_from_words(section_words, page_width, page_height, padding=20):
 
 
 def build_fixture_symbols_bbox(anchor, words, page_width, page_height):
-    """Build a dynamic bbox around Fixture Symbols using detected section words."""
-    section_words = find_fixture_section_words(words, anchor, page_width, page_height)
-    section_bbox = build_bbox_from_words(section_words, page_width, page_height, padding=20)
+    """Build a dynamic bbox around Fixture Symbols from local anchor-based words."""
+    local_words = find_fixture_section_words(words, anchor, page_width, page_height)
+    content_words = filter_out_heading_words(local_words, anchor)
+
+    words_for_bbox = content_words if content_words else local_words
+    section_bbox = build_bbox_from_words(words_for_bbox, page_width, page_height, padding=12)
+
     if section_bbox is None:
-        return None
+        heading_only_bbox = build_bbox_from_words([anchor], page_width, page_height, padding=8)
+        return heading_only_bbox, []
 
     section_x0, section_top, section_x1, section_bottom = section_bbox
 
@@ -111,13 +133,13 @@ def build_fixture_symbols_bbox(anchor, words, page_width, page_height):
     x1 = max(section_x1, float(anchor["x1"]))
     bottom = max(section_bottom, float(anchor["bottom"]))
 
-    extra_padding = 10.0
-    x0 = max(0.0, x0 - extra_padding)
-    top = max(0.0, top - extra_padding)
-    x1 = min(float(page_width), x1 + extra_padding)
-    bottom = min(float(page_height), bottom + extra_padding)
+    modest_padding = 8.0
+    x0 = max(0.0, x0 - modest_padding)
+    top = max(0.0, top - modest_padding)
+    x1 = min(float(page_width), x1 + modest_padding)
+    bottom = min(float(page_height), bottom + modest_padding)
 
-    return (x0, top, x1, bottom)
+    return (x0, top, x1, bottom), words_for_bbox
 
 
 def crop_region(page, bbox):

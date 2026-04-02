@@ -6,7 +6,6 @@ from legend_cropper import (
     build_fixture_symbols_bbox,
     crop_region,
     extract_crop_text,
-    find_fixture_section_words,
     find_fixture_symbols_anchor,
     save_cropped_image,
 )
@@ -56,22 +55,26 @@ def main() -> None:
 
             print(f"Fixture Symbols anchor: {anchor}")
 
-            section_words = find_fixture_section_words(words, anchor, page.width, page.height)
-            print(f"Words used to build section bbox: {len(section_words)}")
+            local_window = {
+                "x0": max(0.0, float(anchor["x0"]) - 450.0),
+                "x1": min(float(page.width), float(anchor["x1"]) + 550.0),
+                "top": max(0.0, float(anchor["top"]) - 40.0),
+                "bottom": min(float(page.height), float(anchor["bottom"]) + 700.0),
+            }
+            print(f"Local search window: {local_window}")
 
-            bbox = build_fixture_symbols_bbox(anchor, words, page.width, page.height)
+            bbox, section_words = build_fixture_symbols_bbox(
+                anchor,
+                words,
+                page.width,
+                page.height,
+            )
+
             if bbox is None:
                 print("Unable to build Fixture Symbols section bbox from detected words.")
-                if section_words:
-                    nearby_words = [str(word.get("text", "")).strip() for word in section_words[:25]]
-                else:
-                    nearby_words = [str(word.get("text", "")).strip() for word in words[:25]]
-                nearby_words = [word for word in nearby_words if word]
-                if nearby_words:
-                    print("Nearby words sample:")
-                    print(", ".join(nearby_words))
                 return
 
+            print(f"Words used to build section bbox: {len(section_words)}")
             print(f"Fixture Symbols bbox: {bbox}")
 
             cropped_page = crop_region(page, bbox)
