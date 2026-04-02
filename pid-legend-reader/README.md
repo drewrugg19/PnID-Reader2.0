@@ -1,63 +1,37 @@
-# P&ID Legend Reader
+# P&ID Reader - Manual Valve Extraction Test (Phase)
 
-This repository is currently in **Phase 2** with an added **valve extraction test path**.
+This phase focuses on proving valve extraction workflow on an **actual P&ID drawing page**, not on legend parsing.
 
-## What This Phase Does
+## Scope of This Phase
 
-This phase supports reusable multi-section legend detection and cropping from page 1.
+- Uses `data/input/CYW111234640.pdf` (page 1)
+- Uses **manual valve bounding boxes** only
+- Does **not** auto-detect valve symbols
+- Keeps legend parsing logic untouched
 
-The script now:
-
-1. Opens the PDF
-2. Reads page 1
-3. Saves a full-page debug image
-4. Extracts word-level data
-5. Extracts structural line and rectangle data from `pdfplumber`
-6. Combines line + rectangle edges into normalized line-like segments
-7. Detects section anchors for:
-   - **FIXTURE SYMBOLS**
-   - **PIPING ELEMENTS**
-   - **VALVE SYMBOLS**
-8. Builds each section crop box from nearby line borders with word-based bottom estimation
-9. Saves one debug crop image per detected section
-10. Parses section records in the existing legend path
-11. Runs a separate valve extraction test flow from drawing symbol bboxes
-
-## New Valve Extraction Path (Drawing Symbols)
-
-This phase adds a new, separate path for valve extraction from the **actual drawing symbols** (not legend parsing).
-
-### Currently Supported Valve Types
+## Supported Valve Types
 
 - **BALL VALVE**
 - **BUTTERFLY VALVE**
 
-### Current Valve ID Rule
+## Expected Valve ID Direction
 
-Valve IDs are searched relative to symbol position:
+- **BALL VALVE**: valve ID is searched **above** the symbol bbox
+- **BUTTERFLY VALVE**: valve ID is searched **below** the symbol bbox
 
-- **BALL VALVE**: search text **above** the symbol bbox
-- **BUTTERFLY VALVE**: search text **below** the symbol bbox
+## Workflow Being Proven
 
-### Current Output Shape
+`symbol bbox -> valve type -> nearby ID -> structured record`
 
-Each extracted valve is returned as:
+## Output Record Shape
 
 ```json
 {
-  "valve_id": "",
+  "valve_id": "...",
   "valve_type": "BALL VALVE",
-  "drawing_number": ""
+  "drawing_number": "CYW111234640"
 }
 ```
-
-`drawing_number` is a placeholder in this phase and will be extracted later.
-
-## Input PDF
-
-Place your test PDF at:
-
-- `data/input/sample_pid.pdf`
 
 ## Run
 
@@ -67,23 +41,7 @@ From the `pid-legend-reader` directory:
 python src/main.py
 ```
 
-## Debug Output Files Created
+## Notes
 
-Running the script creates:
-
-- `debug/page_1_full.png`
-- `debug/fixture_symbols.png` (if detected)
-- `debug/piping_elements.png` (if detected)
-- `debug/valve_symbols.png` (if detected)
-
-The script also ensures these folders exist:
-
-- `debug/`
-- `data/output/`
-
-## Status Note
-
-- Section detection and cropping are implemented for Fixture Symbols, Piping Elements, and Valve Symbols.
-- The new valve extraction workflow is now present:
-  `symbol bbox -> valve type -> nearby ID text -> structured record`.
-- This phase does **not** add OCR, machine learning, or broad symbol automation.
+- `src/main.py` contains a dedicated, isolated manual valve test flow.
+- Update the manual `TEST_VALVES` bounding boxes with real coordinates from your target page as needed.
