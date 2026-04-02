@@ -157,7 +157,8 @@ def main() -> None:
 
             print("\n--- FIXTURE RECORDS ---\n")
             for record in fixture_records:
-                print(f"[L] {record['left']} -> {record['right']}")
+                side = str(record.get("side", "left")).upper()
+                print(f"[{side}] {record['left']} -> {record['right']}")
             if not fixture_records:
                 print("(no fixture records)")
 
