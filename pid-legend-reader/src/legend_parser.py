@@ -548,17 +548,109 @@ def parse_valve_section(
     words: list[dict[str, Any]],
     section_bbox: tuple[float, float, float, float] | None = None,
 ) -> list[dict[str, str]]:
-    row_objects = build_section_row_objects(words, section_bbox, "valve")
+    _ = section_bbox
+    grouped_rows = group_words_into_rows(words)
 
-    print("\n--- VALVE ROW OBJECTS ---\n")
-    for row in row_objects:
-        print(f'LEFT: "{row.get("left_text", "")}"')
-        print(f'RIGHT: "{row.get("right_text", "")}"')
-    if not row_objects:
-        print("(no row objects)")
+    filtered_rows: list[list[dict[str, Any]]] = []
+    text_start_candidates: list[float] = []
 
-    records = merge_section_continuations(row_objects)
-    return [{"left": record["left"], "right": record["right"], "section": "valve"} for record in records]
+    for row in grouped_rows:
+        if not row:
+            continue
+
+        ordered_row = sorted(row, key=lambda w: float(w.get("x0", 0)))
+        row_top = min(float(word.get("top", 0)) for word in ordered_row)
+        if row_top <= 40:
+            continue
+
+        header_text = build_row_text(ordered_row).upper()
+        if "VALVE" in header_text and "SYMBOL" in header_text:
+            continue
+
+        if len(ordered_row) >= 2:
+            max_gap = -1.0
+            start_index: int | None = None
+            for index in range(len(ordered_row) - 1):
+                gap = float(ordered_row[index + 1].get("x0", 0)) - float(
+                    ordered_row[index].get("x1", ordered_row[index].get("x0", 0))
+                )
+                if gap > max_gap:
+                    max_gap = gap
+                    start_index = index + 1
+
+            if start_index is not None and max_gap >= 8:
+                text_start_candidates.append(float(ordered_row[start_index].get("x0", 0)))
+
+        filtered_rows.append(ordered_row)
+
+    global_text_start_x: float | None = None
+    if text_start_candidates:
+        candidates = sorted(text_start_candidates)
+        global_text_start_x = candidates[len(candidates) // 2]
+
+    row_entries: list[dict[str, Any]] = []
+    for row in filtered_rows:
+        description_words = row
+        if global_text_start_x is not None:
+            right_block_words = [word for word in row if float(word.get("x0", 0)) >= global_text_start_x - 2]
+            if right_block_words:
+                description_words = right_block_words
+
+        row_text = build_row_text(description_words)
+        if row_text:
+            row_entries.append(
+                {
+                    "text": row_text,
+                    "top": min(float(word.get("top", 0)) for word in row),
+                }
+            )
+
+    ending_phrases = ("BALL VALVES", "O.S.&Y. VALVES")
+    row_texts: list[str] = []
+    buffered_entry: dict[str, Any] | None = None
+    for entry in row_entries:
+        entry_text = normalize_space(str(entry.get("text", "")))
+        if not entry_text:
+            continue
+
+        upper_text = entry_text.upper()
+        if upper_text in ending_phrases and buffered_entry is not None:
+            top_gap = float(entry.get("top", 0)) - float(buffered_entry.get("top", 0))
+            if top_gap <= 40:
+                combined = normalize_space(f'{buffered_entry.get("text", "")} {entry_text}')
+                row_texts.append(combined)
+                buffered_entry = None
+                continue
+
+        if buffered_entry is not None:
+            row_texts.append(normalize_space(str(buffered_entry.get("text", ""))))
+        buffered_entry = entry
+
+    if buffered_entry is not None:
+        row_texts.append(normalize_space(str(buffered_entry.get("text", ""))))
+
+    print("\n--- VALVE ROW TEXT ---\n")
+    for row_text in row_texts:
+        print(f'ROW: "{row_text}"')
+    if not row_texts:
+        print("(no valve row text)")
+
+    records: list[dict[str, str]] = []
+    for row_text in row_texts:
+        normalized_row = normalize_space(row_text)
+        left_text = normalized_row
+        right_text = ""
+
+        row_upper = normalized_row.upper()
+        for phrase in ending_phrases:
+            if row_upper.endswith(phrase):
+                right_text = phrase
+                left_text = normalize_space(normalized_row[: -len(phrase)])
+                break
+
+        records.append({"left": left_text, "right": right_text, "section": "valve"})
+
+    return records
 
 
 def parse_section(
