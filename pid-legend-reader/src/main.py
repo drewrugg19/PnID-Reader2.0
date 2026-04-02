@@ -19,6 +19,8 @@ from pdf_reader import (
     save_page_image,
 )
 from utils import ensure_directory, log_step
+from valve_detector import classify_valve_type, detect_candidate_valve_regions
+from valve_extractor import build_valve_record, extract_nearby_valve_id
 
 PDF_PATH = Path("data/input/sample_pid.pdf")
 DEBUG_DIR = Path("debug")
@@ -36,6 +38,42 @@ SECTION_SETTINGS_NAMES = {
     "piping_elements": "PIPING ELEMENTS",
     "fixture_symbols": "FIXTURE SYMBOLS",
 }
+
+
+def run_valve_extraction_test(page) -> list[dict[str, str]]:
+    words = extract_words(page)
+
+    TEST_VALVES = [
+        {"type": "BALL VALVE", "bbox": (0.0, 0.0, 0.0, 0.0)},
+        {"type": "BUTTERFLY VALVE", "bbox": (0.0, 0.0, 0.0, 0.0)},
+    ]
+
+    valve_records: list[dict[str, str]] = []
+
+    manual_candidates = [
+        {"type": item["type"], "bbox": item["bbox"], "source": "manual_test"}
+        for item in TEST_VALVES
+    ]
+    setattr(page, "manual_valve_regions", manual_candidates)
+
+    candidates = detect_candidate_valve_regions(page)
+
+    print("\n--- VALVE EXTRACTION TEST ---")
+    for region in candidates:
+        valve_type = classify_valve_type(region)
+        if valve_type is None:
+            continue
+
+        bbox = tuple(region.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+        valve_id = extract_nearby_valve_id(words, bbox, valve_type)
+        record = build_valve_record(valve_id=valve_id, valve_type=valve_type, drawing_number="")
+        valve_records.append(record)
+
+        print(f"TYPE: {valve_type}")
+        print(f"ID: {valve_id}")
+        print("")
+
+    return valve_records
 
 
 def main() -> None:
@@ -209,6 +247,13 @@ def main() -> None:
                     f"bottom_line={result.get('bottom_line')} | bbox={result.get('bbox')} | "
                     f"output={result.get('debug_path')}"
                 )
+
+            valve_extraction_records = run_valve_extraction_test(page)
+            print("--- VALVE EXTRACTION RECORDS ---")
+            for record in valve_extraction_records:
+                print(record)
+            if not valve_extraction_records:
+                print("(no valve extraction records)")
 
     except FileNotFoundError:
         log_step(f"ERROR: PDF file not found: {PDF_PATH}")
