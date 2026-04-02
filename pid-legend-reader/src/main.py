@@ -97,7 +97,7 @@ def main() -> None:
             for record in fixture_records:
                 side = str(record.get("side", "")).upper() or "UNKNOWN"
                 tag = str(record.get("tag") or "UNKNOWN")
-                description = str(record.get("description") or "").strip()
+                description = " ".join(str(record.get("description") or "").split()).strip()
                 print(f"[{side}] {tag} -> {description}")
 
             if not fixture_records:

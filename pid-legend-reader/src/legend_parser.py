@@ -14,11 +14,27 @@ TAG_BLACKLIST = {
     "WATER",
     "CLOSET",
     "LAVATORY",
+    "ELECTRIC",
+    "COOLER",
+    "SINK",
+    "URINAL",
+    "SHOWER",
+    "EYEWASH",
+    "RECEPTOR",
+    "SEMI-RECESSED",
+    "FLOOR",
+    "FLUSH",
 }
 
 
 def normalize_space(text: str) -> str:
     return " ".join(text.split()).strip()
+
+
+def normalize_description(text: str) -> str:
+    normalized = normalize_space(text)
+    normalized = re.sub(r"\s+,", ",", normalized)
+    return normalized.strip()
 
 
 def build_row_text(words: list[dict[str, Any]]) -> str:
@@ -93,6 +109,7 @@ def build_side_row_objects(
             continue
 
         row_top = min(float(word.get("top", 0)) for word in row)
+        row_bottom = max(float(word.get("bottom", row_top)) for word in row)
         if row_top <= header_cutoff:
             continue
 
@@ -114,6 +131,7 @@ def build_side_row_objects(
                 {
                     "side": side,
                     "top": row_top,
+                    "bottom": row_bottom,
                     "words": side_words,
                     "text": text,
                 }
@@ -158,39 +176,52 @@ def is_probable_tag(text: str) -> bool:
 
 
 def split_tag_and_description(words: list[dict[str, Any]]) -> dict[str, str | None]:
-    """Detect the first probable tag in a side row and split description text."""
+    """Detect a probable tag and split description text."""
     if not words:
         return {"tag": None, "description": ""}
 
     ordered = sorted(words, key=lambda w: float(w.get("x0", 0)))
     texts = [normalize_space(str(word.get("text", ""))) for word in ordered]
 
-    tag_index: int | None = None
-    tag_value: str | None = None
-
-    for index, token in enumerate(texts):
+    tag_candidates: list[tuple[int, float, str]] = []
+    for index, word in enumerate(ordered):
+        token = texts[index]
         if is_probable_tag(token):
-            tag_index = index
-            tag_value = token
-            break
+            tag_candidates.append((index, float(word.get("x0", 0)), token))
 
-    if tag_index is None:
+    if not tag_candidates:
         return {
             "tag": None,
-            "description": normalize_space(" ".join(text for text in texts if text)),
+            "description": normalize_description(" ".join(text for text in texts if text)),
         }
 
-    description = normalize_space(" ".join(text for text in texts[tag_index + 1 :] if text))
+    # Prefer earlier tag positions, and secondarily smaller x0.
+    tag_index, _, tag_value = min(tag_candidates, key=lambda candidate: (candidate[0], candidate[1]))
+
+    description = normalize_description(" ".join(text for text in texts[tag_index + 1 :] if text))
     return {
         "tag": tag_value,
         "description": description,
     }
 
 
+def should_attach_as_continuation(
+    previous_row: dict[str, Any] | None, current_row: dict[str, Any], max_gap: float = 18
+) -> bool:
+    if previous_row is None:
+        return False
+
+    previous_bottom = float(previous_row.get("bottom", previous_row.get("top", 0)))
+    current_top = float(current_row.get("top", 0))
+    vertical_gap = current_top - previous_bottom
+    return vertical_gap <= max_gap
+
+
 def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, str | None]]:
-    """Merge rows for one side, appending untagged rows as continuation text."""
+    """Merge rows for one side, appending close untagged rows as continuation text."""
     records: list[dict[str, str | None]] = []
     current_record: dict[str, str | None] | None = None
+    previous_row: dict[str, Any] | None = None
 
     sorted_rows = sorted(side_rows, key=lambda item: float(item.get("top", 0)))
 
@@ -199,11 +230,11 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
         row_words = row.get("words", [])
         parsed = split_tag_and_description(row_words)
         tag = parsed.get("tag")
-        description = normalize_space(str(parsed.get("description") or ""))
+        description = normalize_description(str(parsed.get("description") or ""))
 
         if tag:
             if current_record:
-                current_record["description"] = normalize_space(str(current_record.get("description") or ""))
+                current_record["description"] = normalize_description(str(current_record.get("description") or ""))
                 records.append(current_record)
 
             current_record = {
@@ -211,14 +242,21 @@ def merge_continuation_rows(side_rows: list[dict[str, Any]]) -> list[dict[str, s
                 "tag": str(tag),
                 "description": description,
             }
+            previous_row = row
             continue
 
-        if current_record and description:
-            current_description = normalize_space(str(current_record.get("description") or ""))
-            current_record["description"] = normalize_space(f"{current_description} {description}")
+        if (
+            current_record
+            and description
+            and should_attach_as_continuation(previous_row, row)
+        ):
+            current_description = normalize_description(str(current_record.get("description") or ""))
+            current_record["description"] = normalize_description(f"{current_description} {description}")
+
+        previous_row = row
 
     if current_record:
-        current_record["description"] = normalize_space(str(current_record.get("description") or ""))
+        current_record["description"] = normalize_description(str(current_record.get("description") or ""))
         records.append(current_record)
 
     return records
